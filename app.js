@@ -233,22 +233,19 @@
     applyDesignReference();
   }
 
-  /** cream-editorial 토큰을 그대로 참조해 팔레트·대비 기준을 화면에 남긴다. */
+  /** Direction C(Dark Glass Studio) 팔레트를 그대로 참조해 대비 기준을 화면에 남긴다. */
   function applyDesignReference() {
     var DR = window.DesignRef;
-    if (!DR || !DR.tokens) return;
     try {
-      var tk = DR.tokens('cream-editorial');
-      document.documentElement.setAttribute('data-design', 'designref.v2/' + tk.id);
-      var report = DR.contrastReport ? DR.contrastReport('cream-editorial') : [];
-      var text = report.filter(function (r) { return r.kind === 'text'; })[0];
-      var accent = report.filter(function (r) { return r.id === 'accent-bg'; })[0];
+      document.documentElement.setAttribute('data-design', 'designref.v3/dark-glass');
       var note = $('#design-note');
-      if (note) {
-        note.textContent = '디자인 기준 ' + tk.name + ' (design-ref v2) · 본문 대비 ' +
-          (text ? text.ratio.toFixed(2) + ':1 ' + text.level : '-') +
-          ' · 강조 대비 ' + (accent ? accent.ratio.toFixed(2) + ':1' : '-');
-      }
+      if (!note || !DR || !DR.color) return;
+      var ratio = DR.color.contrastRatio;
+      var text = ratio('#F4F5F8', '#06070B');
+      var sub = ratio('#ADB5C4', '#14161C');
+      var accent = ratio('#B9A2FF', '#06070B');
+      note.textContent = '디자인 기준 다크 글래스 스튜디오 (design-ref v3) · 본문 대비 ' + text.toFixed(2) + ':1 AA' +
+        ' · 보조 ' + sub.toFixed(2) + ':1 AA · 포인트 #8B5CF6 / #34E0C8 · 포인트 글자 ' + accent.toFixed(2) + ':1';
     } catch (e) { /* 디자인 엔진이 없어도 앱은 동작한다 */ }
   }
 
@@ -430,6 +427,8 @@
     $('#export-warn').hidden = !stats.overPlatformMax;
     $('#time-total').textContent = C.formatClock(C.totalMs(cuts));
     $('#stage-meta').textContent = cuts.length + '컷 · ' + res.w + '×' + res.h;
+    var tlMeta = $('#tl-meta');
+    if (tlMeta) tlMeta.textContent = cuts.length + ' CLIPS · ' + stats.totalSec.toFixed(1) + 'S · ' + res.w + '×' + res.h;
     $('#btn-export').disabled = !cuts.length || state.recording;
     $('#btn-srt').disabled = !cuts.length;
     $('#btn-vtt').disabled = !cuts.length;
@@ -451,6 +450,8 @@
       var idx = 0;
       tl.forEach(function (seg, i) { if (ms >= seg.start) idx = i; });
       $$('#timeline .tl-seg').forEach(function (el, i) { el.setAttribute('data-active', i === idx ? 'true' : 'false'); });
+      var head = $('#tl-playhead');
+      if (head) head.style.left = Math.min(100, Math.max(0, (ms / Math.max(1, total)) * 100)) + '%';
     };
     state.preview.onEnd = function () {
       stopPreviewAudio();
@@ -496,9 +497,12 @@
   function updateTimeline() {
     var tl = C.timeline(activeCuts());
     $('#timeline').innerHTML = tl.map(function (seg, i) {
-      return '<button type="button" class="tl-seg" data-seek="' + seg.start + '" data-seg="' + i + '" aria-label="' + (i + 1) + '컷 ' + seg.label + '로 이동">' +
-        '<b>' + esc(seg.label) + '</b><small>' + (seg.duration / 1000).toFixed(1) + '초</small></button>';
+      return '<button type="button" class="tl-seg" data-seek="' + seg.start + '" data-seg="' + i + '" data-stage="' + seg.stage + '" aria-label="' + (i + 1) + '컷 ' + seg.label + '로 이동">' +
+        '<b><em>' + ('0' + (i + 1)).slice(-2) + '</em>' + esc(seg.label) + '</b>' +
+        '<small>' + (seg.duration / 1000).toFixed(1) + '초</small></button>';
     }).join('');
+    var head = $('#tl-playhead');
+    if (head) head.style.left = '0%';
     $$('#timeline .tl-seg').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var ms = Number(btn.getAttribute('data-seek'));
@@ -1598,8 +1602,8 @@
   }
 
   function init() {
-    var theme = 'light';
-    try { theme = localStorage.getItem(STORE_THEME) || 'light'; } catch (e) { theme = 'light'; }
+    var theme = 'dark';
+    try { theme = localStorage.getItem(STORE_THEME) || 'dark'; } catch (e) { theme = 'dark'; }
     applyTheme(theme);
 
     buildSelects();

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="ko" data-theme="light">
+<html lang="ko" data-theme="dark" data-design="designref.v3/dark-glass">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>원탭 숏폼 스튜디오 — 5컷 대본이 실제 9:16 영상 파일로</title>
 <meta name="description" content="주제나 대본을 넣으면 훅-문제-해결-증거-CTA 5컷 숏폼 스토리보드를 만들고, 브라우저에서 실제 .webm 영상·.srt 자막·컷 PNG로 저장합니다. API 키 없이 무료로 동작하고, OpenAI·Gemini·Claude를 연결하면 AI 대본·컷 이미지·성우까지 자동화됩니다." />
-<meta name="theme-color" content="#f3eadd" />
-<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#06070B" />
+<meta name="color-scheme" content="dark light" />
 <link rel="canonical" href="https://marcj81.github.io/shorts-video-studio/" />
 <link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="styles.css" />
@@ -21,10 +21,10 @@
   <div class="topbar-inner">
     <a class="brand" href="#board" data-tab-link="board" aria-label="원탭 숏폼 스튜디오 홈">
       <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 40 40" width="34" height="34">
-          <rect x="4" y="1.5" width="32" height="37" rx="5" fill="none" stroke="currentColor" stroke-width="1.6" />
-          <path d="M16 12.5v15l11-7.5z" fill="currentColor" />
-          <path d="M8 6.5h4M8 33.5h4M28 6.5h4M28 33.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        <svg viewBox="0 0 40 40" width="30" height="30">
+          <rect x="4" y="1.5" width="32" height="37" rx="7" fill="none" stroke="currentColor" stroke-width="1.8" />
+          <path d="M16.5 12.5v15l10.5-7.5z" fill="currentColor" />
+          <path d="M9.5 7h3M9.5 33h3M27.5 7h3M27.5 33h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
         </svg>
       </span>
       <span class="brand-text">
@@ -46,7 +46,7 @@
         <span id="pro-badge-label">무료 모드</span>
       </button>
       <span class="save-state" id="save-state" aria-live="polite">자동 저장</span>
-      <button type="button" class="icon-btn" id="btn-theme" aria-label="다크 모드로 전환" title="라이트/다크">
+      <button type="button" class="icon-btn" id="btn-theme" aria-label="라이트 모드로 전환" title="라이트/다크">
         <svg class="ico-sun" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="3.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 1.8v2M10 16.2v2M1.8 10h2M16.2 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         <svg class="ico-moon" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M16.4 12.3A6.8 6.8 0 0 1 7.7 3.6a6.8 6.8 0 1 0 8.7 8.7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </button>
@@ -63,15 +63,37 @@
   <section class="view is-active" id="view-board" role="tabpanel" aria-labelledby="tab-board">
     <div class="hero">
       <div class="hero-copy">
-        <p class="kicker">세로 숏폼 전용 · 9:16 · 2026</p>
+        <p class="kicker"><span class="live-dot" aria-hidden="true"></span> SHORTS STUDIO · 9:16 · 2026</p>
         <h1>대본 한 줄이면,<br /><em>9:16 영상 한 편.</em></h1>
         <p class="hero-lead">주제를 넣으면 훅-문제-해결-증거-CTA 다섯 컷으로 나눠 줍니다. 내 사진을 얹고 테마를 고른 뒤, 버튼 한 번으로 <strong>실제 영상 파일</strong>을 받으세요. API 키도, 서버도 필요 없습니다.</p>
+        <div class="hero-cta">
+          <button type="button" class="btn btn-primary" data-goto="studio">영상 만들기 →</button>
+          <span class="mono-label">SERVER 0 · SIGNUP 0 · KEY 0</span>
+        </div>
       </div>
-      <ul class="hero-facts" aria-label="이 앱의 기준">
-        <li><strong>5컷 × 6테마</strong><span>1080×1920 세로 원본</span></li>
-        <li><strong>진짜 .webm</strong><span>녹화·자막·컷 PNG까지</span></li>
-        <li><strong>서버 전송 0건</strong><span>무료 모드는 이 브라우저에서만</span></li>
-      </ul>
+
+      <div class="hero-stage">
+        <div class="stage-chrome">
+          <span class="mono-label"><span class="live-dot" aria-hidden="true"></span> PREVIEW</span>
+          <span class="mono-label dim">1080 × 1920</span>
+        </div>
+        <div class="hero-body">
+          <div class="hero-frame" aria-hidden="true">
+            <span class="frame-tag">9:16</span>
+            <div class="frame-scrim">
+              <span class="frame-kicker">HOOK · 01</span>
+              <span class="frame-text">오늘 아침,</span>
+              <span class="frame-text dim">3초 안에 멈추게</span>
+              <span class="frame-bar"><i></i></span>
+            </div>
+          </div>
+          <ul class="hero-facts" aria-label="이 앱의 기준">
+            <li><strong>5컷 × 6테마</strong><span>1080×1920 세로 원본</span></li>
+            <li><strong>진짜 .webm</strong><span>녹화·자막·컷 PNG까지</span></li>
+            <li><strong>서버 전송 0건</strong><span>무료 모드는 이 브라우저에서만</span></li>
+          </ul>
+        </div>
+      </div>
     </div>
 
     <div class="board-grid">
@@ -142,7 +164,7 @@
       <section class="panel panel-board" aria-label="5컷 스토리보드">
         <div class="board-head">
           <div>
-            <p class="kicker">STORYBOARD</p>
+            <p class="kicker">STORYBOARD · CLIP EDITOR</p>
             <h2 id="board-title">아직 만든 스토리보드가 없습니다</h2>
             <p class="board-meta" id="board-stats">왼쪽에 주제를 넣고 <strong>5컷 스토리보드 만들기</strong>를 누르면, 훅부터 행동까지 다섯 컷이 만들어집니다.</p>
           </div>
@@ -191,29 +213,34 @@
 
     <div class="stage-grid">
       <section class="stage-panel" aria-label="영상 미리보기">
-        <div class="stage-top">
-          <span class="stage-tag">PREVIEW</span>
-          <span class="stage-meta" id="stage-meta">5컷 · 1080×1920</span>
+        <div class="viewer-bar">
+          <span class="viewer-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="mono-label" id="viewer-title">PREVIEW · <span id="stage-meta">5컷 · 1080×1920</span></span>
+          <span class="rec-chip"><i aria-hidden="true"></i>9:16</span>
         </div>
-        <div class="phone-wrap">
-          <div class="phone" id="phone">
-            <canvas id="preview-canvas" width="720" height="1280" aria-label="숏폼 영상 미리보기"></canvas>
-            <div class="safe-overlay" id="safe-overlay" hidden aria-hidden="true">
-              <span class="safe-top"></span>
-              <span class="safe-bottom"></span>
-              <span class="safe-side"></span>
-              <span class="safe-label">안전 영역</span>
-            </div>
-            <button type="button" class="stage-play" id="btn-play-big" aria-label="재생">
-              <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
-            </button>
-            <div class="stage-hud">
-              <span id="time-now">0:00</span>
-              <span class="hud-sep">/</span>
-              <span id="time-total">0:00</span>
+
+        <div class="viewer">
+          <div class="phone-wrap">
+            <div class="phone" id="phone">
+              <canvas id="preview-canvas" width="720" height="1280" aria-label="숏폼 영상 미리보기"></canvas>
+              <div class="safe-overlay" id="safe-overlay" hidden aria-hidden="true">
+                <span class="safe-top"></span>
+                <span class="safe-bottom"></span>
+                <span class="safe-side"></span>
+                <span class="safe-label">안전 영역</span>
+              </div>
+              <button type="button" class="stage-play" id="btn-play-big" aria-label="재생">
+                <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+              </button>
+              <div class="stage-hud">
+                <span id="time-now">0:00</span>
+                <span class="hud-sep">/</span>
+                <span id="time-total">0:00</span>
+              </div>
             </div>
           </div>
         </div>
+
         <div class="stage-controls">
           <button type="button" class="btn btn-ghost btn-sm" id="btn-play">▶ 재생</button>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-restart">처음으로</button>
@@ -221,11 +248,26 @@
           <label class="switch"><input type="checkbox" id="f-preview-sound" /> <span>소리 미리듣기</span></label>
           <label class="switch"><input type="checkbox" id="f-safe" /> <span>안전 영역</span></label>
         </div>
-        <div class="timeline" id="timeline" aria-label="컷 타임라인"></div>
+
+        <div class="timeline-wrap">
+          <div class="tl-head">
+            <span class="mono-label">TIMELINE</span>
+            <span class="mono-label dim" id="tl-meta">5 CLIPS</span>
+          </div>
+          <div class="tl-lane">
+            <div class="timeline" id="timeline" aria-label="컷 타임라인"></div>
+            <span class="tl-playhead" id="tl-playhead" aria-hidden="true"></span>
+          </div>
+        </div>
+
         <p class="stage-note" id="stage-note">재생을 누르면 애니메이션과 자막 위치를 실제와 같게 확인할 수 있습니다. 배경음은 내보내기 때 합성됩니다.</p>
       </section>
 
       <aside class="panel export-panel" aria-label="내보내기 설정">
+        <div class="panel-top">
+          <p class="kicker">EXPORT</p>
+          <span class="mono-label dim">.WEBM · .SRT</span>
+        </div>
         <div class="step-head"><span class="step-no">01</span><h2>파일 설정</h2></div>
         <div class="field-row">
           <label class="field"><span>해상도</span><select id="x-resolution" class="input select"></select></label>

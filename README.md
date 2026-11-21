@@ -52,9 +52,9 @@
 ## 4. 파일 구조
 
 ```
-apps/shorts-video-studio/
+apps/shorts-video-maker/
   index.html          화면 4개: 스토리보드 · 영상 스튜디오 · Pro 연결 · 가이드
-  styles.css          크림 에디토리얼 토큰 + 다크 스테이지
+  styles.css          디자인 시스템 Direction C — Dark Glass Studio (designref.v3)
   core.js             5컷 분배 · 시간축 · SRT · AI 프롬프트/파싱 (Node 테스트 대상)
   render.js           Canvas 그리기 · 미리보기 · MediaRecorder 녹화 · Web Audio 배경음
   pro.js              ProConnect 호환 슬롯 (OpenAI/Gemini/Claude/자체 서버)
@@ -67,12 +67,31 @@ apps/shorts-video-studio/
   uitest.py           실제 Chrome 검증 (playwright)
 ```
 
+## 4-1. 디자인 시스템 (Direction C · Dark Glass Studio)
+
+영상 도구를 “영상 만드는 사람의 방”처럼 보이게 하는 다크 캔버스 시스템입니다.
+
+| 토큰 | 값 | 쓰는 곳 |
+|---|---|---|
+| canvas | `#06070B` (카드 바탕 `#111319`) | 화면 바탕·유리 카드의 불투명 폴백 |
+| glass / edge | `rgba(255,255,255,.055)` / `rgba(255,255,255,.11)` | 유리 카드 배경과 1px 보더 |
+| ink / sub / muted | `#F4F5F8` / `#ADB5C4` / `#949CAC` | 본문 / 보조 / 안내 |
+| violet / teal | `#8B5CF6`(글자 `#B9A2FF`) / `#34E0C8` | 보라=상태·행동, 민트=성공·라이브 |
+| radius / blur | 카드 20 · 입력 10 · 필 999 / blur 18~22px | 상단 바·히어로 모니터·스테이지 패널·모달에만 |
+
+- **편집기 셸**: 9:16 프리뷰를 뷰어(PREVIEW 바 · 재생 HUD · 안전 영역)로 감싸고, 그 아래에 클립 번호·단계·길이를 가진 타임라인과 재생 헤드를 둡니다. 컷 목록은 단계별 색을 가진 클립 레일로 그립니다.
+- **글로우는 화면당 2~3개**만(배경 라디얼 3개). 카드마다 글로우를 넣지 않습니다.
+- **라이트 모드는 보조**: 토글은 있지만 정체성은 다크입니다. 라이트는 표·긴 글을 읽기 위한 고대비 인쇄 모드입니다.
+- `prefers-reduced-motion` · `prefers-reduced-transparency` · `backdrop-filter` 미지원 브라우저에서는 blur·글로우를 끄고 불투명 바탕으로 떨어집니다.
+- 대비는 `node test.js`의 ‘디자인 토큰 C안’ 그룹이 본문·보조·라벨·포인트 글자(다크/라이트 8쌍)를 WCAG 2.2 공식으로 검사합니다.
+
+
 ## 5. 실행
 
 `file://`로 열면 폰트 로딩이 막히는 브라우저가 있어 로컬 서버를 권장합니다.
 
 ```bash
-cd apps/shorts-video-studio
+cd apps/shorts-video-maker
 python3 -m http.server 8080
 # http://localhost:8080
 ```
@@ -80,14 +99,14 @@ python3 -m http.server 8080
 ## 6. 테스트
 
 ```bash
-node test.js          # 250여 개 단위·파일 위생·보안 검사
+node test.js          # 270여 개 단위·파일 위생·보안·디자인 토큰 검사
 python3 uitest.py     # 헤드리스 Chrome: 실제 .webm 녹화·다운로드까지 검증
 ```
 
 `uitest.py`는 앱 폴더를 127.0.0.1로 띄우고, 데스크톱 1440×900과 모바일 390×844에서
-외부 요청 0건, 콘솔 에러 0, 가로 넘침 0, 캔버스 프리뷰 재생, MediaRecorder Blob 생성,
-`.webm` EBML 헤더·길이, `.srt` 5블록, PNG 5장, Pro 모달 순서·연결·해제, AI 대본/이미지 적용,
-새로고침 유지, 다크 모드 대비, 개인정보 페이지를 확인하고 스크린샷 3장을 저장합니다.
+외부 요청 0건, 콘솔 에러 0, 가로 넘침 0, 캔버스 프리뷰 재생, 타임라인 재생 헤드,
+MediaRecorder Blob 생성, `.webm` EBML 헤더·길이, `.srt` 5블록, PNG 5장, Pro 모달 순서·연결·해제,
+AI 대본/이미지 적용, 새로고침 유지, 다크/라이트 대비, 개인정보 페이지를 확인하고 스크린샷 3장을 저장합니다.
 
 ## 7. Pro 연결 (선택)
 
