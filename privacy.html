@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>개인정보 처리방침 — 원탭 숏폼 스튜디오</title>
+<meta name="description" content="원탭 숏폼 스튜디오의 개인정보 처리방침. 무료 모드는 서버 전송 없이 브라우저에서만 동작하고, Pro 키는 탭의 sessionStorage에만 저장됩니다." />
+<meta name="theme-color" content="#f3eadd" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<style>
+  @font-face { font-family: 'PlexKR'; src: url('assets/fonts/plexkr-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+  @font-face { font-family: 'PlexKR'; src: url('assets/fonts/plexkr-SemiBold.woff2') format('woff2'); font-weight: 500 600; font-display: swap; }
+  @font-face { font-family: 'PlexKR'; src: url('assets/fonts/plexkr-Bold.woff2') format('woff2'); font-weight: 700 900; font-display: swap; }
+  :root { --paper:#f3eadd; --surface:#fffcf6; --ink:#33281e; --sub:#6a5b4a; --muted:#6f5d49; --line:#e0d2be; --accent:#a8431f; --radius:4px; }
+  html[data-theme="dark"] { --paper:#16120e; --surface:#1f1a14; --ink:#f4ebdd; --sub:#c0b09b; --muted:#ad9b86; --line:#3a3228; --accent:#f09a62; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:'PlexKR', -apple-system, 'Apple SD Gothic Neo', sans-serif; font-size:15px; line-height:1.75; word-break:keep-all; }
+  header { border-bottom:1px solid var(--line); }
+  .wrap { max-width:760px; margin:0 auto; padding:0 24px; }
+  header .wrap { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-top:18px; padding-bottom:18px; }
+  .brand { display:flex; align-items:center; gap:10px; color:var(--ink); text-decoration:none; font-weight:600; font-size:15px; }
+  .brand img { width:26px; height:26px; }
+  header a.back { font-size:12.5px; color:var(--sub); text-decoration:none; border:1px solid var(--line); border-radius:999px; padding:5px 12px; }
+  main { padding:40px 0 64px; }
+  h1 { font-size:30px; letter-spacing:-0.04em; margin:0 0 8px; }
+  .meta { font-size:12px; color:var(--muted); margin-bottom:28px; }
+  h2 { font-size:16px; margin:32px 0 8px; letter-spacing:-0.02em; }
+  p, li { color:var(--sub); }
+  ul { padding-left:18px; margin:8px 0; }
+  li { margin:4px 0; }
+  .box { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; margin:14px 0; }
+  .box strong { color:var(--ink); }
+  table { width:100%; border-collapse:collapse; margin:10px 0 0; font-size:13px; }
+  th, td { text-align:left; border-bottom:1px solid var(--line); padding:8px 6px; vertical-align:top; color:var(--sub); }
+  th { color:var(--ink); font-weight:600; font-size:12px; }
+  code { font-family:ui-monospace, Menlo, monospace; font-size:12px; background:var(--surface); border:1px solid var(--line); border-radius:3px; padding:1px 4px; }
+  footer { border-top:1px solid var(--line); padding:20px 0 40px; font-size:12px; color:var(--muted); }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="favicon.svg" alt="" />원탭 숏폼 스튜디오</a>
+    <a class="back" href="index.html">앱으로 돌아가기</a>
+  </div>
+</header>
+<main class="wrap">
+  <h1>개인정보 처리방침</h1>
+  <p class="meta">시행일 2026년 11월 21일 · 회원가입 없음 · 광고·분석 도구 없음</p>
+
+  <div class="box">
+    <strong>한 줄 요약</strong>
+    <p>무료 모드에서는 어떤 내용도 서버로 보내지 않습니다. 입력한 대본·사진·영상은 이 브라우저 안에서만 처리되고, 만든 영상 파일도 기기에 저장됩니다. Pro 기능을 직접 연결한 경우에만 사용자가 고른 제공자에게 필요한 문장이 전송됩니다.</p>
+  </div>
+
+  <h2>1. 처리하는 정보</h2>
+  <table>
+    <tr><th>항목</th><th>목적</th><th>저장 위치·기간</th></tr>
+    <tr><td>주제·대본·컷 문장·테마 설정</td><td>스토리보드 유지, 새로고침 후 복원</td><td>이 브라우저의 localStorage · 직접 비울 때까지</td></tr>
+    <tr><td>업로드한 사진·영상에서 뽑은 프레임</td><td>영상 배경으로 사용</td><td>localStorage(용량 초과 시 제외) · 직접 비울 때까지</td></tr>
+    <tr><td>Pro API 키</td><td>사용자가 연결한 제공자 호출</td><td>이 탭의 sessionStorage · 탭을 닫으면 삭제</td></tr>
+    <tr><td>완성된 영상·자막·PNG</td><td>사용자 기기로 저장</td><td>브라우저 메모리에서 생성 후 즉시 다운로드 · 서버 저장 없음</td></tr>
+  </table>
+  <p>이름, 전화번호, 이메일, 위치, 연락처, 결제 정보는 수집하지 않습니다. 계정도 만들지 않습니다.</p>
+
+  <h2>2. 무료 모드에서 서버로 가는 것</h2>
+  <p>없습니다. 대본 생성, 테마 그리기, 배경음 합성, 영상 녹화(MediaRecorder), 자막 생성이 모두 브라우저 안에서 실행됩니다. 앱을 열 때 외부에서 불러오는 파일도 없습니다(폰트·스크립트 모두 앱에 포함).</p>
+
+  <h2>3. Pro 기능을 연결했을 때</h2>
+  <p>사용자가 직접 API 키를 넣고 연결한 경우에만, 버튼을 누른 순간 아래 내용이 해당 제공자에게 전송됩니다.</p>
+  <table>
+    <tr><th>기능</th><th>전송 내용</th></tr>
+    <tr><td>AI 대본</td><td>주제, 톤, 플랫폼, 추가 요청 문장</td></tr>
+    <tr><td>AI 컷 이미지</td><td>대본에서 만든 장면 설명(영문 프롬프트)</td></tr>
+    <tr><td>AI 성우</td><td>내레이션 문장</td></tr>
+  </table>
+  <p>제공자는 사용자가 선택한 곳입니다: OpenAI, Google Gemini, Anthropic Claude, 또는 사용자가 입력한 자체 API 서버. 각 제공자의 이용약관과 개인정보 처리방침이 함께 적용됩니다. 앱은 키를 자체 서버로 보내지 않으며, 키를 화면에 다시 표시하지도 않습니다(마스킹만 표시).</p>
+
+  <h2>4. 쿠키와 추적</h2>
+  <p>쿠키를 쓰지 않습니다. 접속 통계·광고·행동 추적 스크립트를 넣지 않습니다. 사이트를 정적 호스팅(GitHub Pages)에 올린 경우, 호스팅 사업자가 접속 로그(IP 등)를 남길 수 있으며 이는 앱이 통제하지 않습니다.</p>
+
+  <h2>5. 사용자가 직접 지우는 방법</h2>
+  <ul>
+    <li>Pro 키: Pro 연결 화면의 <strong>연결 해제</strong> 또는 탭 닫기</li>
+    <li>프로젝트·사진: 브라우저 설정에서 이 사이트의 저장 데이터 삭제</li>
+    <li>완성 파일: 다운로드 폴더에서 직접 삭제</li>
+  </ul>
+
+  <h2>6. 아동의 개인정보</h2>
+  <p>만 14세 미만 아동을 대상으로 하지 않으며, 아동의 개인정보를 알면서 수집하지 않습니다.</p>
+
+  <h2>7. 변경 안내</h2>
+  <p>방침이 바뀌면 이 페이지에 시행일과 함께 게시합니다. 중요한 변경은 앱 화면에서도 알립니다.</p>
+
+  <h2>8. 문의</h2>
+  <p>이 앱은 개인이 만든 무료 도구이며, 문의는 앱을 배포한 저장소의 이슈 페이지로 받습니다. 개인 이메일·전화번호는 공개하지 않습니다.</p>
+</main>
+<footer>
+  <div class="wrap">© 2026 One-Tap Shorts Studio · <a href="index.html">앱으로 돌아가기</a></div>
+</footer>
+<script>
+  try {
+    var t = localStorage.getItem('shorts-video-studio.theme');
+    if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  } catch (e) {}
+</script>
+</body>
+</html>
