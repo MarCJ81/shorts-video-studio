@@ -185,6 +185,22 @@ def set_durations(page, value='0.8'):
     }""", value)
 
 
+def shot(page, path, full=True):
+    """헤드리스 환경에서 큰 full_page 캡처가 이따금 실패하므로 재시도·폴백한다."""
+    for attempt in range(3):
+        try:
+            page.screenshot(path=str(path), full_page=full)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            print(f'  (스크린샷 재시도 {attempt + 1}/3: {type(exc).__name__})')
+            page.wait_for_timeout(700)
+    try:
+        page.screenshot(path=str(path), full_page=False)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def main():
     global BASE
     tmp = Path(tempfile.mkdtemp(prefix='shorts-studio-'))
@@ -839,14 +855,14 @@ def main():
         page.add_style_tag(content='.topbar{position:static !important}')
         page.mouse.move(4, 4)
         page.wait_for_timeout(300)
-        page.screenshot(path=str(HERE / 'preview-desktop.png'), full_page=True)
+        shot(page, HERE / 'preview-desktop.png')
         check('preview-desktop.png 저장', (HERE / 'preview-desktop.png').exists())
 
         # Pro 프리뷰
         page.click('#tab-pro')
         page.wait_for_timeout(500)
         page.evaluate("() => document.querySelectorAll('.toast').forEach(t => t.remove())")
-        page.screenshot(path=str(HERE / 'preview-pro.png'), full_page=True)
+        shot(page, HERE / 'preview-pro.png')
         check('preview-pro.png 저장', (HERE / 'preview-pro.png').exists())
         context.close()
 
@@ -897,7 +913,7 @@ def main():
               str(len(mpage.query_selector_all('#tl-v1 .tl-clip'))))
         check('모바일 스웜 후 넘침 없음', page_overflow(mpage) == 0, str(page_overflow(mpage)))
         mpage.evaluate("() => document.querySelectorAll('.toast').forEach(t => t.remove())")
-        mpage.screenshot(path=str(HERE / 'preview-mobile.png'), full_page=True)
+        shot(mpage, HERE / 'preview-mobile.png')
         check('preview-mobile.png 저장', (HERE / 'preview-mobile.png').exists())
 
         for tab, view in [('#tab-board', '#view-board'), ('#tab-pro', '#view-pro'), ('#tab-guide', '#view-guide')]:
