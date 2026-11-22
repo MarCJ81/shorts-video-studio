@@ -14,6 +14,7 @@
 """
 import json
 import os
+import shutil
 import socket
 import sys
 import tempfile
@@ -26,6 +27,19 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 HERE = Path(__file__).resolve().parent
+
+# Chrome 프로필·다운로드용 임시 공간. /tmp 가 작은 컨테이너(예: 128MB tmpfs)에서는
+# 프로필이 차면서 렌더러가 죽으므로, 여유가 없으면 앱 폴더 바깥으로 옮긴다.
+_tmpdir = Path(os.environ.get('TMPDIR') or '/tmp')
+try:
+    _free = shutil.disk_usage(str(_tmpdir)).free
+except OSError:
+    _free = 0
+if _free < 512 * 1024 * 1024:
+    _alt = HERE.parent / '.uitest-tmp'
+    _alt.mkdir(exist_ok=True)
+    os.environ['TMPDIR'] = str(_alt)
+
 CHROME = Path('/workspace/scratch/calc/bin/chrome-linux64/chrome')
 LIBS = next(p for p in [Path('/workspace/scratch/chromelibs'), Path('/workspace/scratch/calc/libs')] if p.exists())
 BASE = None
