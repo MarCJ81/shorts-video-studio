@@ -1,5 +1,5 @@
 /* ============================================================
-   원탭 숏폼 스튜디오 · core.js  v1.0.0
+   원탭 숏폼 스튜디오 · core.js  v2.0.0
    ------------------------------------------------------------
    의존성 없는 순수 로직(UMD). 브라우저는 window.ShortsCore,
    node 는 require('./core.js').
@@ -16,7 +16,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var VERSION = '1.0.0';
+  var VERSION = '2.0.0';
   var CANVAS = { w: 1080, h: 1920 };
 
   /* ==========================================================
@@ -363,6 +363,9 @@
       music: 'lofi',
       resolution: '1080',
       fps: 30,
+      grade: { id: 'neutral', exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0 },
+      splits: {},
+      subtitles: [],
       cuts: []
     };
   }
@@ -503,6 +506,22 @@
   function buildVtt(cuts) {
     var srt = buildSrt(cuts);
     return 'WEBVTT\n\n' + srt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+  }
+
+  /** T1 자막 트랙 → SRT. 편집한 자막 줄을 그대로 내보낸다. */
+  function buildSrtFromSubtitles(subs) {
+    var list = (Array.isArray(subs) ? subs : []).filter(function (s) {
+      return s && s.text && Number(s.end) > Number(s.start);
+    });
+    if (!list.length) return '';
+    return list.map(function (s, i) {
+      return [String(i + 1), formatTimecode(s.start) + ' --> ' + formatTimecode(s.end), clean(s.text, 60), ''].join('\n');
+    }).join('\n');
+  }
+
+  function buildVttFromSubtitles(subs) {
+    var srt = buildSrtFromSubtitles(subs);
+    return srt ? 'WEBVTT\n\n' + srt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2') : '';
   }
 
   /** 전체 내레이션 텍스트(성우 TTS용) */
@@ -828,6 +847,26 @@
       if (project[k] !== undefined) base[k] = !!project[k];
     });
     base.fps = Number(project.fps) === 24 ? 24 : 30;
+    base.grade = normalizeGrade(project.grade);
+    base.splits = {};
+    if (project.splits && typeof project.splits === 'object') {
+      Object.keys(project.splits).slice(0, 8).forEach(function (k) {
+        var i = Number(k), n = Number(project.splits[k]);
+        if (isFinite(i) && isFinite(n) && n > 0.15 && n < 0.86) base.splits[i] = round(n, 2);
+      });
+    }
+    base.subtitles = (Array.isArray(project.subtitles) ? project.subtitles : []).slice(0, 30).map(function (s) {
+      return {
+        id: clean(s.id || '', 24), cutIndex: clamp(s.cutIndex || 0, 0, 4),
+        stage: s.stage || 'hook', kind: s.kind === 'sub' ? 'sub' : 'headline',
+        start: clamp(Math.round(s.start || 0), 0, 600000),
+        end: clamp(Math.round(s.end || 0), 0, 600000),
+        text: clean(s.text || '', 24)
+      };
+    }).filter(function (s) { return s.end > s.start && s.text; });
+    if (project.swarm && project.swarm.mode) {
+      base.swarm = { mode: clean(project.swarm.mode, 12), steps: [] };
+    }
     base.cuts = normalizeCuts(project.cuts || []).map(function (c) {
       return {
         stage: c.stage, label: c.label,
@@ -868,7 +907,393 @@
   }
 
   /* ==========================================================
-     8. 내보내기
+     8. NLE · 컬러 보정 / 멀티트랙 / AI 스웜
+     ----------------------------------------------------------
+     타임라인 편집기(NLE)가 쓰는 순수 로직. 화면·캔버스 없이
+     node 에서 그대로 검증한다.
+       · 컬러 그레이드(노출·대비·채도·온도·틴트) → CSS 필터 문자열
+       · V1 영상 / T1 자막 / A1 오디오 / FX 효과 트랙 모델
+       · 규칙 기반 AI 스웜 편집(컷 분할 → 자막 → 색보정 → 오디오)
+       · Pro 응답(JSON) 파싱
+     ========================================================== */
+
+  var GRADES = [
+    { id: 'neutral', name: '뉴트럴', nameEn: 'NEUTRAL', exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, note: '원본 그대로' },
+    { id: 'cinematic', name: '시네마틱', nameEn: 'CINEMATIC', exposure: -3, contrast: 20, saturation: -8, temperature: -4, tint: 3, note: '낮은 채도 · 깊은 대비' },
+    { id: 'warm', name: '웜 톤', nameEn: 'WARM', exposure: 4, contrast: 6, saturation: 10, temperature: 24, tint: 4, note: '따뜻한 살구빛' },
+    { id: 'cool', name: '쿨 톤', nameEn: 'COOL', exposure: 1, contrast: 10, saturation: -4, temperature: -24, tint: -5, note: '푸른 그림자' },
+    { id: 'punch', name: '펀치', nameEn: 'PUNCH', exposure: 3, contrast: 28, saturation: 22, temperature: 5, tint: 0, note: '숏폼용 고대비' },
+    { id: 'fade', name: '필름 페이드', nameEn: 'FILM FADE', exposure: 7, contrast: -16, saturation: -14, temperature: 9, tint: 0, note: '들뜬 블랙' }
+  ];
+
+  var TRACKS = [
+    { id: 'V1', name: '영상', nameEn: 'VIDEO', color: '#A78BFA' },
+    { id: 'T1', name: '자막', nameEn: 'CAPTIONS', color: '#34E0C8' },
+    { id: 'A1', name: '오디오', nameEn: 'AUDIO', color: '#60A5FA' },
+    { id: 'FX', name: '효과', nameEn: 'EFFECTS', color: '#FBBF24' }
+  ];
+
+  var AGENTS = [
+    { id: 'claude', name: 'Claude', role: '대본/자막', color: '#E8A24A' },
+    { id: 'gemini', name: 'Gemini', role: '컷/리듬', color: '#5B9CFF' },
+    { id: 'gpt', name: 'GPT', role: '색보정/사운드', color: '#34E0C8' }
+  ];
+
+  function gradeById(id) {
+    for (var i = 0; i < GRADES.length; i++) if (GRADES[i].id === id) return GRADES[i];
+    return GRADES[0];
+  }
+  function agentById(id) {
+    for (var i = 0; i < AGENTS.length; i++) if (AGENTS[i].id === id) return AGENTS[i];
+    return AGENTS[0];
+  }
+  function trackById(id) {
+    for (var i = 0; i < TRACKS.length; i++) if (TRACKS[i].id === id) return TRACKS[i];
+    return TRACKS[0];
+  }
+
+  /** 그레이드 값을 -50~50 정수로 고정한다. */
+  function normalizeGrade(raw) {
+    var out = {
+      id: 'custom', exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0
+    };
+    if (!raw || typeof raw !== 'object') return out;
+    ['exposure', 'contrast', 'saturation', 'temperature', 'tint'].forEach(function (k) {
+      out[k] = Math.round(clamp(raw[k] || 0, -50, 50));
+    });
+    out.id = clean(raw.id || 'custom', 20) || 'custom';
+    if (raw.preset) out.preset = clean(raw.preset, 20);
+    var match = matchGradePreset(out);
+    if (match) out.preset = match;
+    return out;
+  }
+
+  /** 값이 프리셋과 같으면 프리셋 id를 돌려준다(다르면 ''). */
+  function matchGradePreset(g) {
+    var n = { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0 };
+    ['exposure', 'contrast', 'saturation', 'temperature', 'tint'].forEach(function (k) { n[k] = Math.round(clamp(g[k] || 0, -50, 50)); });
+    for (var i = 0; i < GRADES.length; i++) {
+      var p = GRADES[i];
+      if (p.exposure === n.exposure && p.contrast === n.contrast && p.saturation === n.saturation &&
+          p.temperature === n.temperature && p.tint === n.tint) return p.id;
+    }
+    return '';
+  }
+
+  /** 그레이드가 실제로 화면을 바꾸는지. */
+  function hasGrade(raw) {
+    var g = normalizeGrade(raw);
+    return !!(g.exposure || g.contrast || g.saturation || g.temperature || g.tint);
+  }
+
+  /** Canvas/WebM 공용 CSS 필터 문자열. */
+  function gradeFilterString(raw) {
+    var g = normalizeGrade(raw);
+    if (!g.exposure && !g.contrast && !g.saturation) return 'none';
+    var brightness = round(clamp(1 + g.exposure / 100, 0.4, 1.8), 3);
+    var contrast = round(clamp(1 + g.contrast / 100, 0.3, 2), 3);
+    var saturate = round(clamp(1 + g.saturation / 100, 0, 2.4), 3);
+    return 'brightness(' + brightness + ') contrast(' + contrast + ') saturate(' + saturate + ')';
+  }
+
+  /** 온도·틴트를 색 피막으로. 없으면 null. */
+  function gradeOverlay(raw) {
+    var g = normalizeGrade(raw);
+    if (!g.temperature && !g.tint) return null;
+    var t = g.temperature / 50, n = g.tint / 50;
+    var r = 128 + Math.round(112 * t) + Math.round(22 * n);
+    var gg = 128 + Math.round(18 * Math.abs(t)) * (t > 0 ? 1 : 1) - Math.round(20 * n);
+    var b = 128 - Math.round(104 * t) + Math.round(30 * n);
+    r = clamp(r, 0, 255); gg = clamp(gg, 0, 255); b = clamp(b, 0, 255);
+    return {
+      r: Math.round(r), g: Math.round(gg), b: Math.round(b),
+      alpha: round(0.06 + 0.2 * Math.max(Math.abs(t), Math.abs(n)), 3),
+      blend: 'soft-light'
+    };
+  }
+
+  /** 그레이드 사람이 읽는 요약 */
+  function gradeLabel(raw) {
+    var g = normalizeGrade(raw);
+    if (g.preset) return gradeById(g.preset).name;
+    if (!hasGrade(g)) return '뉴트럴';
+    return '커스텀 · 노출 ' + (g.exposure > 0 ? '+' : '') + g.exposure + ' · 대비 ' + (g.contrast > 0 ? '+' : '') + g.contrast +
+      ' · 채도 ' + (g.saturation > 0 ? '+' : '') + g.saturation + ' · 온도 ' + (g.temperature > 0 ? '+' : '') + g.temperature;
+  }
+
+  /** 테마에 맞는 자동 그레이드 */
+  function autoGrade(themeId) {
+    var map = { editorial: 'warm', midnight: 'cinematic', neon: 'punch', sunset: 'warm', clinic: 'cool', pop: 'punch' };
+    return normalizeGrade(Object.assign({}, gradeById(map[themeId] || 'warm'), { id: map[themeId] || 'warm' }));
+  }
+
+  /* ── 프레임 타임코드 00:00:00:00 ───────────────────────── */
+  function formatTimecodeFrames(ms, fps) {
+    var f = Number(fps) === 24 ? 24 : 30;
+    var total = Math.max(0, Math.round(Number(ms) || 0));
+    var h = Math.floor(total / 3600000);
+    var m = Math.floor(total % 3600000 / 60000);
+    var s = Math.floor(total % 60000 / 1000);
+    var frame = Math.min(f - 1, Math.floor((total % 1000) / 1000 * f));
+    function p2(n) { return n < 10 ? '0' + n : String(n); }
+    return p2(h) + ':' + p2(m) + ':' + p2(s) + ':' + p2(frame);
+  }
+
+  /* ── 자막 트랙(T1) 문장 나누기 ─────────────────────────── */
+  function subtitlesFromCuts(cuts, maxChars) {
+    var list = normalizeCuts(cuts || []);
+    var tl = timeline(list);
+    var out = [];
+    var chars = Math.max(8, Number(maxChars) || 17);
+    list.forEach(function (cut, i) {
+      var seg = tl[i];
+      var text = stripMarks(cut.headline);
+      var lines = wrapText(text, chars);
+      if (!lines.length) return;
+      var sub = stripMarks(cut.sub || '');
+      var subLines = sub ? wrapText(sub, chars + 4).slice(0, 2) : [];
+      var all = lines.concat(subLines);
+      var step = seg.duration / all.length;
+      all.forEach(function (line, k) {
+        out.push({
+          id: 't' + (i + 1) + '-' + (k + 1),
+          cutIndex: i, stage: cut.stage,
+          start: Math.round(seg.start + step * k),
+          end: Math.round(seg.start + step * (k + 1)),
+          text: clean(line, 24),
+          kind: k < lines.length ? 'headline' : 'sub'
+        });
+      });
+    });
+    return out;
+  }
+
+  /* ── 오디오(A1) 비트 · 파형 ───────────────────────────── */
+  function audioBeats(project) {
+    var p = project || {};
+    var total = totalMs(normalizeCuts(p.cuts || []));
+    var music = p.music || 'lofi';
+    if (music === 'none' || total <= 0) return [];
+    var bpm = music === 'upbeat' ? 118 : (music === 'lofi' ? 74 : 58);
+    var beat = 60000 / bpm;
+    var out = [];
+    for (var t = 0; t < total; t += beat) out.push(Math.round(t));
+    return out.slice(0, 400);
+  }
+
+  /** 파형 표본(0~1). 같은 프로젝트면 항상 같은 모양 — 그림 검증용. */
+  function waveform(project, n, atMs) {
+    var count = Math.max(8, Math.min(240, Number(n) || 96));
+    var total = totalMs(normalizeCuts((project && project.cuts) || []));
+    var seed = hash((project && project.music ? project.music : 'lofi') + '|' + total);
+    var out = [];
+    var beats = (project && project.beats && project.beats.length) ? project.beats : audioBeats(project);
+    var pos = Number(atMs) || 0;
+    for (var i = 0; i < count; i++) {
+      var t = total ? (i / count) * total + pos : i / count;
+      var base = 0.28 + 0.34 * Math.abs(Math.sin(i * 0.41 + (seed % 17)));
+      var mod = 0.18 * Math.abs(Math.sin(i * 1.27 + (seed % 7)));
+      var hit = 0;
+      for (var b = 0; b < beats.length; b++) {
+        var d = Math.abs(t - beats[b]);
+        if (d < 90) hit = Math.max(hit, (1 - d / 90) * 0.4);
+      }
+      out.push(round(clamp(base + mod + hit, 0.05, 1), 3));
+    }
+    return out;
+  }
+
+  /* ── 멀티트랙 모델 ────────────────────────────────────── */
+  function buildTracks(project, opts) {
+    opts = opts || {};
+    var p = project || {};
+    var cuts = normalizeCuts(p.cuts || []);
+    var tl = timeline(cuts);
+    var total = tl.length ? tl[tl.length - 1].end : 0;
+    var splits = (p.splits && typeof p.splits === 'object') ? p.splits : {};
+
+    var v1 = [];
+    cuts.forEach(function (cut, i) {
+      var seg = tl[i];
+      var ratio = Number(splits[i]);
+      var label = cut.label || stageById(cut.stage).label;
+      if (isFinite(ratio) && ratio > 0.15 && ratio < 0.86) {
+        var mid = Math.round(seg.start + seg.duration * ratio);
+        v1.push({
+          id: 'v' + (i + 1) + 'a', cutIndex: i, stage: cut.stage, label: label,
+          start: seg.start, end: mid, part: 'A', text: stripMarks(cut.headline)
+        });
+        v1.push({
+          id: 'v' + (i + 1) + 'b', cutIndex: i, stage: cut.stage, label: label,
+          start: mid, end: seg.end, part: 'B', text: stripMarks(cut.headline)
+        });
+      } else {
+        v1.push({
+          id: 'v' + (i + 1), cutIndex: i, stage: cut.stage, label: label,
+          start: seg.start, end: seg.end, part: '', text: stripMarks(cut.headline)
+        });
+      }
+    });
+
+    var t1 = [];
+    var subs = Array.isArray(p.subtitles) ? p.subtitles : [];
+    if (subs.length) {
+      t1 = subs.map(function (s, i) {
+        return {
+          id: clean(s.id || 'sub' + (i + 1), 24),
+          cutIndex: Number(s.cutIndex) || 0, stage: s.stage || 'hook',
+          start: Math.round(clamp(s.start, 0, Math.max(0, total))),
+          end: Math.round(clamp(s.end, 0, Math.max(0, total))),
+          text: clean(s.text, 24),
+          kind: s.kind || 'headline'
+        };
+      }).filter(function (s) { return s.end > s.start && s.text; });
+    } else {
+      t1 = subtitlesFromCuts(cuts, opts.captionChars || 17);
+    }
+
+    var beats = (Array.isArray(p.beats) && p.beats.length) ? p.beats.slice(0, 400) : audioBeats(p);
+    var a1 = {
+      style: p.music || 'lofi',
+      beats: beats,
+      samples: waveform({ cuts: cuts, music: p.music, beats: beats }, opts.samples || 120),
+      start: 0, end: total
+    };
+
+    var grade = normalizeGrade(p.grade);
+    var fx = [];
+    if ((p.transition || 'fade') !== 'none') {
+      tl.forEach(function (seg, i) {
+        if (i === 0) return;
+        fx.push({
+          id: 'fx-t' + i, type: 'transition', label: (p.transition || 'fade').toUpperCase(),
+          start: Math.max(0, seg.start - 170), end: seg.start + 170
+        });
+      });
+    }
+    if (hasGrade(grade)) {
+      fx.push({ id: 'fx-color', type: 'color', label: 'COLOR · ' + gradeLabel(grade), start: 0, end: total });
+    }
+    fx.push({ id: 'fx-grain', type: 'grain', label: 'GRAIN', start: 0, end: total });
+
+    return {
+      cuts: cuts, timeline: tl, total: total,
+      v1: v1, t1: t1, a1: a1, fx: fx,
+      counts: { V1: v1.length, T1: t1.length, A1: beats.length, FX: fx.length },
+      splitCount: v1.length - cuts.length
+    };
+  }
+
+  /* ── 규칙 기반 AI 스웜 편집 ───────────────────────────── */
+  function planSwarm(project, opts) {
+    opts = opts || {};
+    var p = project || {};
+    var cuts = normalizeCuts(p.cuts || []);
+    var splits = {};
+    var splitCount = 0;
+    cuts.forEach(function (cut, i) {
+      if (cut.duration >= 2.4) {
+        var ratio = 0.4 + (hash(cut.headline + '|' + i) % 12) / 100;
+        splits[i] = round(ratio, 2);
+        splitCount++;}
+    });
+    var subs = subtitlesFromCuts(cuts, opts.captionChars || 17);
+    var grade = autoGrade(p.theme);
+    var beats = audioBeats(p);
+    var steps = [
+      { agent: 'gemini', action: 'split', label: '컷 분할', detail: splitCount + '컷을 리듬에 맞춰 나눔' },
+      { agent: 'claude', action: 'subtitles', label: '자막 배치', detail: subs.length + '줄 자막을 T1에 배치' },
+      { agent: 'gpt', action: 'grade', label: '색보정 적용', detail: gradeById(grade.preset || 'warm').name + ' 프리셋' },
+      { agent: 'gpt', action: 'audio', label: '오디오 싱크', detail: beats.length + '개 비트에 파형 정렬' }
+    ];
+    return { mode: opts.mode || 'rules', splits: splits, subtitles: subs, grade: grade, beats: beats, steps: steps };
+  }
+
+  /** 스웜 계획을 프로젝트에 반영한 새 객체를 만든다. */
+  function applySwarm(project, plan) {
+    var base = {};
+    var p = project || {};
+    Object.keys(p).forEach(function (k) { base[k] = p[k]; });
+    var pl = plan || {};
+    if (pl.splits) base.splits = pl.splits;
+    if (pl.subtitles) base.subtitles = pl.subtitles;
+    if (pl.grade) base.grade = normalizeGrade(pl.grade);
+    if (pl.beats) base.beats = pl.beats;
+    if (pl.cuts) base.cuts = normalizeCuts(pl.cuts);
+    base.swarm = {
+      mode: pl.mode || 'rules',
+      steps: (pl.steps || []).map(function (s) {
+        return { agent: s.agent, action: s.action, label: s.label, detail: s.detail };
+      })
+    };
+    return base;
+  }
+
+  /** Pro 응답용 프롬프트: 대본 + 리듬 + 색보정 프리셋. */
+  function buildSwarmPrompt(project, opts) {
+    opts = opts || {};
+    var p = project || {};
+    var cuts = normalizeCuts(p.cuts || []);
+    var current = cuts.map(function (c, i) {
+      return (i + 1) + ') [' + c.stage + '] ' + stripMarks(c.headline) + (c.sub ? ' / ' + stripMarks(c.sub) : '') + ' (' + c.duration + 's)';
+    }).join('\n');
+    return [
+      '너는 숏폼(9:16) 편집 감독이다. 아래 스토리보드를 편집 가능한 타임라인 데이터로 바꿔라.',
+      '',
+      '주제: ' + clean(p.topic || '주제 미정', 80),
+      '플랫폼: ' + platformById(p.platform).name + ' (최대 ' + platformById(p.platform).max + '초)',
+      '현재 스토리보드:',
+      current,
+      '',
+      '규칙:',
+      '- 5컷 구조를 유지하고, headline은 24자 이내, sub는 36자 이내로 다시 쓴다.',
+      '- 각 컷 duration은 1.2~6.0초. 훅은 2.5초 안쪽으로 짧게.',
+      '- 금지 표현: 소중한, 진심으로, 앞으로도, 여러분, 놀라운, 완벽한, 다양한, 결국, 지금 바로.',
+      '- 지어낸 통계 금지. 모르면 [숫자]로 둔다.',
+      '- 색보정 프리셋은 neutral, cinematic, warm, cool, punch, fade 중 하나만 고른다.',
+      '',
+      '출력은 아래 JSON 객체 하나만. 설명·코드블록 금지.',
+      '{"grade":"warm","cuts":[{"stage":"hook","headline":"","sub":"","duration":2.4}],"splits":[0.45,0.5,0.4,0.5,0],"notes":"한 줄 요약"}',
+      'cuts는 반드시 5개, splits는 각 컷을 나눌 비율(0~1, 나누지 않으면 0)이다.'
+    ].join('\n');
+  }
+
+  /** Pro 응답 → {cuts, grade, splits, notes} */
+  function parseSwarmAi(raw) {
+    var text = str(raw).replace(/```[a-zA-Z]*/g, '').replace(/```/g, '').trim();
+    var out = { cuts: [], grade: null, splits: null, notes: '' };
+    if (!text) return out;
+    var obj = null;
+    var s = text.indexOf('{'), e = text.lastIndexOf('}');
+    if (s >= 0 && e > s) {
+      try { obj = JSON.parse(text.slice(s, e + 1)); } catch (err) { obj = null; }
+    }
+    if (!obj) {
+      var arr = parseAiCuts(text);
+      out.cuts = arr;
+      return out;
+    }
+    if (Array.isArray(obj.cuts)) out.cuts = parseAiCuts(JSON.stringify(obj.cuts));
+    if (typeof obj.grade === 'string') {
+      var gid = obj.grade.toLowerCase().trim();
+      for (var i = 0; i < GRADES.length; i++) if (GRADES[i].id === gid) out.grade = normalizeGrade(GRADES[i]);
+    } else if (obj.grade && typeof obj.grade === 'object') {
+      out.grade = normalizeGrade(obj.grade);
+    }
+    if (Array.isArray(obj.splits)) {
+      var splits = {};
+      obj.splits.forEach(function (v, i) {
+        var n = Number(v);
+        if (isFinite(n) && n > 0.15 && n < 0.86) splits[i] = round(n, 2);
+      });
+      out.splits = splits;
+    }
+    out.notes = clean(obj.notes || obj.summary || '', 80);
+    return out;
+  }
+
+  /* ==========================================================
+     9. 내보내기
      ========================================================== */
   return {
     VERSION: VERSION,
@@ -900,6 +1325,8 @@
     totalMs: totalMs,
     buildSrt: buildSrt,
     buildVtt: buildVtt,
+    buildSrtFromSubtitles: buildSrtFromSubtitles,
+    buildVttFromSubtitles: buildVttFromSubtitles,
     narrationText: narrationText,
     findHighlights: findHighlights,
     splitHighlight: splitHighlight,
@@ -912,6 +1339,28 @@
     mergeAiCuts: mergeAiCuts,
     projectStats: projectStats,
     serializeProject: serializeProject,
+    GRADES: GRADES,
+    TRACKS: TRACKS,
+    AGENTS: AGENTS,
+    gradeById: gradeById,
+    agentById: agentById,
+    trackById: trackById,
+    normalizeGrade: normalizeGrade,
+    matchGradePreset: matchGradePreset,
+    hasGrade: hasGrade,
+    gradeFilterString: gradeFilterString,
+    gradeOverlay: gradeOverlay,
+    gradeLabel: gradeLabel,
+    autoGrade: autoGrade,
+    formatTimecodeFrames: formatTimecodeFrames,
+    subtitlesFromCuts: subtitlesFromCuts,
+    audioBeats: audioBeats,
+    waveform: waveform,
+    buildTracks: buildTracks,
+    planSwarm: planSwarm,
+    applySwarm: applySwarm,
+    buildSwarmPrompt: buildSwarmPrompt,
+    parseSwarmAi: parseSwarmAi,
     validateProject: validateProject,
     safeFileName: safeFileName,
     _internals: { hash: hash, BANKS: BANKS, AI_TICKS: AI_TICKS, normalizeStage: normalizeStage, detectStage: detectStage }

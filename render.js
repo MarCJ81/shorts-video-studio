@@ -442,12 +442,51 @@
     return { timeline: tl, index: i, seg: seg, total: total, local: t - seg.start };
   }
 
-  /**
-   * 특정 시점의 프레임을 그린다.
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {object} s {cuts, project, theme, ms, images: {cutId: Image}}
-   */
+  var gradeScratch = null;
+  function ensureScratch(w, h) {
+    if (typeof document === 'undefined') return null;
+    if (!gradeScratch) {
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      gradeScratch = { canvas: canvas, ctx: canvas.getContext('2d', { alpha: false }) };
+    }
+    if (gradeScratch.canvas.width !== w || gradeScratch.canvas.height !== h) {
+      gradeScratch.canvas.width = w; gradeScratch.canvas.height = h;
+      gradeScratch.ctx = gradeScratch.canvas.getContext('2d', { alpha: false });
+    }
+    return gradeScratch;
+  }
+
+  /* ── 색보정(그레이드) 적용 ────────────────────────────────
+     장면을 먼저 오프스크린에 그리고, 노출·대비·채도는 canvas
+     filter 로, 온도·틴트는 soft-light 피막으로 입힌다.
+     미리보기·컷 PNG·.webm 녹화가 모두 같은 drawFrame 을 쓴다. */
   function drawFrame(ctx, s) {
+    var grade = C.normalizeGrade((s && s.grade) || ((s.project || {}).grade));
+    if (!C.hasGrade(grade)) return paintFrame(ctx, s);
+    var scratch = ensureScratch(ctx.canvas.width, ctx.canvas.height);
+    if (!scratch) return paintFrame(ctx, s);
+    var fr = paintFrame(scratch.ctx, s);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.save();
+    var filter = C.gradeFilterString(grade);
+    if (filter !== 'none' && 'filter' in ctx) ctx.filter = filter;
+    ctx.drawImage(scratch.canvas, 0, 0);
+    ctx.restore();
+    var ov = C.gradeOverlay(grade);
+    if (ov) {
+      ctx.save();
+      ctx.globalCompositeOperation = ov.blend || 'soft-light';
+      ctx.fillStyle = 'rgba(' + ov.r + ',' + ov.g + ',' + ov.b + ',' + ov.alpha + ')';
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.restore();
+    }
+    return fr;
+  }
+
+  /** 장면을 그대로 그리는 본체(그레이드 전 단계). */
+  function paintFrame(ctx, s) {
     var cuts = s.cuts || [];
     if (!cuts.length) return;
     var fr = resolveFrame(cuts, s.ms);

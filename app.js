@@ -428,7 +428,10 @@
     $('#time-total').textContent = C.formatClock(C.totalMs(cuts));
     $('#stage-meta').textContent = cuts.length + '컷 · ' + res.w + '×' + res.h;
     var tlMeta = $('#tl-meta');
-    if (tlMeta) tlMeta.textContent = cuts.length + ' CLIPS · ' + stats.totalSec.toFixed(1) + 'S · ' + res.w + '×' + res.h;
+    if (tlMeta && window.ShortsNLE) {
+      var nt = window.ShortsNLE.tracks();
+      if (nt) tlMeta.textContent = nt.v1.length + ' CLIPS · ' + (nt.total / 1000).toFixed(1) + 'S';
+    }
     $('#btn-export').disabled = !cuts.length || state.recording;
     $('#btn-srt').disabled = !cuts.length;
     $('#btn-vtt').disabled = !cuts.length;
@@ -446,12 +449,7 @@
     state.preview.onTick = function (ms, total) {
       $('#time-now').textContent = C.formatClock(ms);
       $('#time-total').textContent = C.formatClock(total);
-      var tl = C.timeline(activeCuts());
-      var idx = 0;
-      tl.forEach(function (seg, i) { if (ms >= seg.start) idx = i; });
-      $$('#timeline .tl-seg').forEach(function (el, i) { el.setAttribute('data-active', i === idx ? 'true' : 'false'); });
-      var head = $('#tl-playhead');
-      if (head) head.style.left = Math.min(100, Math.max(0, (ms / Math.max(1, total)) * 100)) + '%';
+      if (window.ShortsNLE) window.ShortsNLE.tick(ms, total);
     };
     state.preview.onEnd = function () {
       stopPreviewAudio();
@@ -494,27 +492,9 @@
     });
   }
 
+  /** 타임라인은 NLE 모듈이 그린다(구 .tl-seg 행은 제거). */
   function updateTimeline() {
-    var tl = C.timeline(activeCuts());
-    $('#timeline').innerHTML = tl.map(function (seg, i) {
-      return '<button type="button" class="tl-seg" data-seek="' + seg.start + '" data-seg="' + i + '" data-stage="' + seg.stage + '" aria-label="' + (i + 1) + '컷 ' + seg.label + '로 이동">' +
-        '<b><em>' + ('0' + (i + 1)).slice(-2) + '</em>' + esc(seg.label) + '</b>' +
-        '<small>' + (seg.duration / 1000).toFixed(1) + '초</small></button>';
-    }).join('');
-    var head = $('#tl-playhead');
-    if (head) head.style.left = '0%';
-    $$('#timeline .tl-seg').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var ms = Number(btn.getAttribute('data-seek'));
-        if (state.preview) {
-          state.preview.pause();
-          $('#btn-play').textContent = '▶ 재생';
-          $('#btn-play-big').setAttribute('data-playing', 'false');
-          stopPreviewAudio();
-          state.preview.seek(ms);
-        }
-      });
-    });
+    if (window.ShortsNLE) window.ShortsNLE.refresh();
   }
 
   function stopPreviewAudio() {
@@ -569,6 +549,9 @@
     });
     state.project.topic = topic || res.topic;
     state.project.cuts = res.cuts;
+    state.project.splits = {};
+    state.project.subtitles = [];
+    state.project.beats = [];
     state.images = {};
     state.voices = [];
     state.useVoice = false;
@@ -606,6 +589,8 @@
       topic: state.project.topic
     });
     state.project.cuts = cuts;
+    state.project.splits = {};
+    state.project.subtitles = [];
     renderStoryboard();
     refreshPreview(true);
     refreshBridgePrompt();
@@ -714,7 +699,15 @@
   }
 
   function srtText() {
+    var subs = state.project.subtitles;
+    if (Array.isArray(subs) && subs.length) return C.buildSrtFromSubtitles(subs);
     return C.buildSrt(activeCuts(), { maxChars: 17 });
+  }
+
+  function vttText() {
+    var subs = state.project.subtitles;
+    if (Array.isArray(subs) && subs.length) return C.buildVttFromSubtitles(subs);
+    return C.buildVtt(activeCuts());
   }
 
   /* ── Pro 연결 ─────────────────────────────────────────── */
@@ -983,6 +976,8 @@
   function applyAiDraft() {
     if (!state.aiDraft) return;
     state.project.cuts = C.mergeAiCuts(activeCuts(), state.aiDraft);
+    state.project.splits = {};
+    state.project.subtitles = [];
     if ($('#ai-topic').value.trim()) state.project.topic = $('#ai-topic').value.trim();
     $('#f-topic').value = state.project.topic;
     renderStoryboard();
@@ -1156,6 +1151,8 @@
     var cuts = C.parseAiCuts(raw);
     if (!cuts.length) { setStatus('#import-status', '5컷으로 읽지 못했습니다. “1) 훅: …” 또는 JSON 배열 형태로 붙여넣어 주세요.', 'error'); return; }
     state.project.cuts = C.mergeAiCuts(activeCuts(), cuts);
+    state.project.splits = {};
+    state.project.subtitles = [];
     renderStoryboard();
     refreshPreview(false);
     refreshBridgePrompt();
@@ -1191,6 +1188,7 @@
     if (tab === 'studio') {
       refreshPreview(true);
       updateStudioFacts();
+      if (window.ShortsNLE) window.ShortsNLE.refresh();
     }
     if (tab === 'pro') {
       renderProviderCards();
@@ -1313,8 +1311,10 @@
       if (el.getAttribute('data-field') === 'headline') {
         cut.headline = el.value;
         autoGrow(el);
+        state.project.subtitles = [];
       } else if (el.getAttribute('data-field') === 'sub') {
         cut.sub = el.value;
+        state.project.subtitles = [];
       } else if (el.classList.contains('cut-duration')) {
         cut.duration = Number(el.value);
         var card = el.closest('.cut-card');
@@ -1454,7 +1454,7 @@
       toast('자막 .srt를 저장했습니다');
     });
     $('#btn-vtt').addEventListener('click', function () {
-      downloadText(C.buildVtt(activeCuts()), baseName() + '-9x16.vtt', 'text/vtt');
+      downloadText(vttText(), baseName() + '-9x16.vtt', 'text/vtt');
       toast('자막 .vtt를 저장했습니다');
     });
     $('#btn-txt').addEventListener('click', function () {
@@ -1640,6 +1640,7 @@
     refreshProState();
     refreshCapChips();
     fillProFields();
+    initNLE();
 
     var hash = (location.hash || '').replace('#', '');
     if (hash && ['board', 'studio', 'pro', 'guide'].indexOf(hash) >= 0) go(hash);
@@ -1664,6 +1665,50 @@
     });
   }
 
+  /* ── NLE 워크스페이스 연결 ────────────────── */
+  function initNLE() {
+    if (!window.ShortsNLE) return;
+    window.ShortsNLE.init({
+      state: state,
+      toast: toast,
+      saveSoon: queueSave,
+      seek: function (ms) {
+        if (!state.preview) return;
+        state.preview.pause();
+        stopPreviewAudio();
+        $('#btn-play').textContent = '▶ 재생';
+        $('#btn-play-big').setAttribute('data-playing', 'false');
+        state.preview.seek(ms);
+      },
+      playFrom: function (ms) {
+        if (!state.preview) return;
+        state.preview.pause();
+        state.preview.seek(ms);
+        togglePlay();
+      },
+      onGrade: function (commit) {
+        refreshPreview(true);
+        updateStudioFacts();
+        if (commit) queueSave();
+      },
+      onClipEdit: function () {
+        renderStoryboard();
+        refreshPreview(true);
+        updateStats();
+        updateVoicePreview();
+        queueSave();
+      },
+      onSwarmChange: function (action) {
+        renderStoryboard();
+        refreshPreview(action !== 'split');
+        updateStats();
+        updateStudioFacts();
+        updateVoicePreview();
+        queueSave();
+      }
+    });
+  }
+
   // 바깥에서 검증할 수 있는 최소 핸들 (테스트·디버그용)
   window.ShortsApp = {
     state: state,
@@ -1671,6 +1716,7 @@
     build: buildStoryboard,
     exportVideo: doExport,
     loadSample: loadSample,
+    nle: function () { return window.ShortsNLE; },
     version: C.VERSION
   };
 

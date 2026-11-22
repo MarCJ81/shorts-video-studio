@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>원탭 숏폼 스튜디오 — 5컷 대본이 실제 9:16 영상 파일로</title>
-<meta name="description" content="주제나 대본을 넣으면 훅-문제-해결-증거-CTA 5컷 숏폼 스토리보드를 만들고, 브라우저에서 실제 .webm 영상·.srt 자막·컷 PNG로 저장합니다. API 키 없이 무료로 동작하고, OpenAI·Gemini·Claude를 연결하면 AI 대본·컷 이미지·성우까지 자동화됩니다." />
+<title>원탭 숏폼 스튜디오 — AI 멀티에이전트 NLE 타임라인</title>
+<meta name="description" content="주제나 대본을 넣으면 5컷 숏폼 스토리보드가 만들어지고, AI 멀티에이전트 NLE 타임라인(V1·T1·A1·FX)에서 컷·자막·색보정·오디오를 다듬어 브라우저에서 실제 .webm 영상·.srt 자막·컷 PNG로 저장합니다. Claude·Gemini·GPT 커서가 컷 분할→자막→색보정→오디오를 자동 적용하고, 키 없이도 무료 규칙 엔진으로 동작합니다." />
 <meta name="theme-color" content="#06070B" />
 <meta name="color-scheme" content="dark light" />
 <link rel="canonical" href="https://marcj81.github.io/shorts-video-studio/" />
 <link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="styles.css" />
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"WebApplication","name":"원탭 숏폼 스튜디오","applicationCategory":"MultimediaApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"KRW"},"description":"5컷 숏폼 스토리보드와 실제 영상(.webm) 녹화, 자막(.srt), 컷 PNG 내보내기. 서버 없이 브라우저에서 동작하는 무료 모드와 OpenAI·Gemini·Claude 연결형 Pro 모드.","inLanguage":"ko"}
+{"@context":"https://schema.org","@type":"WebApplication","name":"원탭 숏폼 스튜디오","applicationCategory":"MultimediaApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"KRW"},"description":"AI 멀티에이전트 NLE 타임라인에서 5컷 숏폼을 편집하고 실제 영상(.webm)·자막(.srt)·컷 PNG로 내보냅니다. 컬러 보정·타임코드·멀티트랙 타임라인, 서버 없는 무료 모드와 OpenAI·Gemini·Claude 연결형 Pro 모드.","inLanguage":"ko"}
 </script>
 </head>
 <body>
@@ -196,32 +196,47 @@
     </div>
   </section>
 
-  <!-- ══════════════ 영상 스튜디오 ══════════════ -->
+  <!-- ══════════════ 영상 스튜디오 · NLE 워크스페이스 ══════════════ -->
   <section class="view" id="view-studio" role="tabpanel" aria-labelledby="tab-studio" hidden>
-    <div class="page-head stage-head">
-      <div>
-        <p class="kicker">RENDER · EXPORT</p>
-        <h1>미리보고, <em>실제 파일로.</em></h1>
-        <p class="lead">브라우저가 캔버스를 그리면서 녹화합니다. 완성된 파일은 내 기기에만 저장됩니다.</p>
-      </div>
-      <div class="export-facts">
-        <span><b id="fact-len">0초</b> 길이</span>
-        <span><b id="fact-size">-</b> 예상 용량</span>
-        <span><b>9:16</b> 세로</span>
-      </div>
-    </div>
-
-    <div class="stage-grid">
-      <section class="stage-panel" aria-label="영상 미리보기">
-        <div class="viewer-bar">
-          <span class="viewer-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span class="mono-label" id="viewer-title">PREVIEW · <span id="stage-meta">5컷 · 1080×1920</span></span>
-          <span class="rec-chip"><i aria-hidden="true"></i>9:16</span>
+    <div class="nle-workspace" id="nle-workspace" data-swarm="idle">
+      <div class="nle-top">
+        <div class="nle-title">
+          <p class="kicker">PROGRAM · MULTI-AGENT NLE</p>
+          <h1>타임라인 위에서, <em>AI 셋이 편집합니다.</em></h1>
+          <p class="nle-lead">Claude는 대본과 자막, Gemini는 컷과 리듬, GPT는 색보정과 사운드를 맡습니다. 아래 <strong>AI 스웜 자동 편집 실행</strong>을 누르면 세 커서가 타임라인을 훑으며 실제 편집을 적용합니다.</p>
         </div>
+        <div class="nle-meta">
+          <span class="nle-chip" id="nle-mode-chip" data-mode="free"><i aria-hidden="true"></i><span id="nle-mode-label">무료 규칙 엔진</span></span>
+          <span class="nle-chip mono" id="tc-display" title="타임코드">00:00:00:00</span>
+          <span class="nle-chip mono dim" id="tl-meta">5 CLIPS</span>
+        </div>
+      </div>
 
-        <div class="viewer">
-          <div class="phone-wrap">
-            <div class="phone" id="phone">
+      <div class="nle-main">
+        <!-- ── 좌: 미디어 소스 + 스웜 활동 ── -->
+        <aside class="nle-panel nle-left" aria-label="미디어 소스와 AI 스웜 활동">
+          <div class="nle-panel-head">
+            <span class="mono-label">SOURCE</span>
+            <span class="mono-label dim">9:16 · 1080×1920</span>
+          </div>
+          <div class="media-list" id="media-list"></div>
+
+          <div class="nle-panel-head swarm-head">
+            <span class="mono-label">SWARM ACTIVITY</span>
+            <span class="swarm-count" id="swarm-count">3 AGENTS</span>
+          </div>
+          <div class="swarm-agents" id="swarm-agents"></div>
+          <ol class="swarm-log" id="swarm-log" aria-live="polite"></ol>
+        </aside>
+
+        <!-- ── 중앙: 프로그램 모니터 ── -->
+        <section class="nle-panel nle-center" aria-label="프로그램 실시간 프리뷰">
+          <div class="nle-panel-head">
+            <span class="mono-label"><span class="live-dot" aria-hidden="true"></span> PROGRAM <span id="viewer-title">PREVIEW</span></span>
+            <span class="mono-label dim" id="stage-meta">5컷 · 1080×1920</span>
+          </div>
+          <div class="monitor-wrap">
+            <div class="phone monitor" id="phone">
               <canvas id="preview-canvas" width="720" height="1280" aria-label="숏폼 영상 미리보기"></canvas>
               <div class="safe-overlay" id="safe-overlay" hidden aria-hidden="true">
                 <span class="safe-top"></span>
@@ -237,103 +252,164 @@
                 <span class="hud-sep">/</span>
                 <span id="time-total">0:00</span>
               </div>
+              <span class="monitor-tc" id="monitor-tc">00:00:00:00</span>
             </div>
           </div>
-        </div>
-
-        <div class="stage-controls">
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-play">▶ 재생</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-restart">처음으로</button>
-          <label class="switch"><input type="checkbox" id="f-loop" /> <span>반복</span></label>
-          <label class="switch"><input type="checkbox" id="f-preview-sound" /> <span>소리 미리듣기</span></label>
-          <label class="switch"><input type="checkbox" id="f-safe" /> <span>안전 영역</span></label>
-        </div>
-
-        <div class="timeline-wrap">
-          <div class="tl-head">
-            <span class="mono-label">TIMELINE</span>
-            <span class="mono-label dim" id="tl-meta">5 CLIPS</span>
+          <div class="transport">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-play">▶ 재생</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-restart">처음으로</button>
+            <label class="switch"><input type="checkbox" id="f-loop" /> <span>반복</span></label>
+            <label class="switch"><input type="checkbox" id="f-preview-sound" /> <span>소리</span></label>
+            <label class="switch"><input type="checkbox" id="f-safe" /> <span>안전 영역</span></label>
           </div>
-          <div class="tl-lane">
-            <div class="timeline" id="timeline" aria-label="컷 타임라인"></div>
+        </section>
+
+        <!-- ── 우: 스코프 + 컬러 휠/슬라이더 ── -->
+        <aside class="nle-panel nle-right" aria-label="오디오 스코프와 색보정">
+          <div class="nle-panel-head">
+            <span class="mono-label">SCOPE · WAVEFORM</span>
+            <span class="mono-label dim" id="scope-meta">RMS</span>
+          </div>
+          <canvas id="scope-canvas" class="scope" width="288" height="96" aria-label="오디오 파형과 스펙트럼"></canvas>
+
+          <div class="nle-panel-head color-head">
+            <span class="mono-label">COLOR</span>
+            <span class="grade-name" id="grade-name">뉴트럴</span>
+          </div>
+          <div class="color-row">
+            <div class="color-wheel" id="color-wheel" role="application" tabindex="0" aria-label="색 온도와 틴트 휠">
+              <span class="wheel-ring" aria-hidden="true"></span>
+              <span class="wheel-puck" id="wheel-puck" aria-hidden="true"></span>
+            </div>
+            <div class="sliders">
+              <label class="g-slider"><span>노출</span><input id="g-exposure" type="range" min="-50" max="50" step="1" value="0" /><b id="g-exposure-v">0</b></label>
+              <label class="g-slider"><span>대비</span><input id="g-contrast" type="range" min="-50" max="50" step="1" value="0" /><b id="g-contrast-v">0</b></label>
+              <label class="g-slider"><span>채도</span><input id="g-saturation" type="range" min="-50" max="50" step="1" value="0" /><b id="g-saturation-v">0</b></label>
+              <label class="g-slider"><span>온도</span><input id="g-temperature" type="range" min="-50" max="50" step="1" value="0" /><b id="g-temperature-v">0</b></label>
+            </div>
+          </div>
+          <div class="grade-presets" id="grade-presets" role="group" aria-label="색보정 프리셋"></div>
+          <button type="button" class="link-btn muted" id="btn-grade-reset">색보정 초기화</button>
+          <p class="nle-hint" id="grade-hint">슬라이더를 움직이면 프리뷰와 .webm 녹화에 같은 값이 적용됩니다.</p>
+          <div class="grade-note" id="grade-note">
+            <span class="mono-label">LOOK NOTE</span>
+            <p>테마와 대비를 읽어 프리셋을 고릅니다. 값을 직접 만지면 커스텀 룩으로 저장됩니다.</p>
+          </div>
+        </aside>
+      </div>
+
+      <!-- ── 하단: 멀티트랙 타임라인 ── -->
+      <section class="nle-panel nle-timeline" aria-label="멀티트랙 타임라인">
+        <div class="nle-panel-head tl-top">
+          <span class="mono-label">TIMELINE · V1 영상 · T1 자막 · A1 오디오 · FX 효과</span>
+          <div class="tl-top-actions">
+            <span class="swarm-status" id="swarm-status" aria-live="polite" hidden></span>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-swarm">🤖 AI 스웜 자동 편집 실행</button>
+          </div>
+        </div>
+        <div class="tl-body">
+          <div class="tl-headers" aria-hidden="true">
+            <div class="tl-head-spacer"></div>
+            <div class="tl-track-head" data-track="V1"><b>V1</b><span>영상</span><i id="tl-count-v1">0</i></div>
+            <div class="tl-track-head" data-track="T1"><b>T1</b><span>자막</span><i id="tl-count-t1">0</i></div>
+            <div class="tl-track-head" data-track="A1"><b>A1</b><span>오디오</span><i id="tl-count-a1">0</i></div>
+            <div class="tl-track-head" data-track="FX"><b>FX</b><span>효과</span><i id="tl-count-fx">0</i></div>
+          </div>
+          <div class="tl-lanes" id="tl-lanes">
+            <div class="tl-ruler" id="tl-ruler" aria-hidden="true"></div>
+            <div class="tl-row" data-track="V1"><div class="tl-clips" id="tl-v1"></div></div>
+            <div class="tl-row" data-track="T1"><div class="tl-clips" id="tl-t1"></div></div>
+            <div class="tl-row tl-row-audio" data-track="A1">
+              <canvas id="tl-a1" class="tl-wave" width="960" height="34" aria-label="오디오 트랙 파형"></canvas>
+              <div class="tl-clips" id="tl-a1-marks"></div>
+            </div>
+            <div class="tl-row" data-track="FX"><div class="tl-clips" id="tl-fx"></div></div>
             <span class="tl-playhead" id="tl-playhead" aria-hidden="true"></span>
           </div>
         </div>
-
-        <p class="stage-note" id="stage-note">재생을 누르면 애니메이션과 자막 위치를 실제와 같게 확인할 수 있습니다. 배경음은 내보내기 때 합성됩니다.</p>
+        <div class="clip-inspector" id="clip-inspector">
+          <span class="mono-label" id="sel-label">클립을 선택하세요</span>
+          <label class="sel-field"><span>길이</span><input id="sel-dur" type="range" min="0.8" max="15" step="0.1" value="3" disabled /><b id="sel-dur-v">—</b></label>
+          <label class="sel-field grow"><span>문장 · 자막</span><input id="sel-text" class="input" type="text" maxlength="90" value="" disabled placeholder="클립을 선택하면 여기서 고칩니다" /></label>
+        </div>
+        <p class="stage-note" id="stage-note">타임라인 클립을 누르면 아래에서 길이와 문장을 고칠 수 있습니다. 자막 줄(T1)을 누르면 그 줄만 편집합니다.</p>
       </section>
 
-      <aside class="panel export-panel" aria-label="내보내기 설정">
-        <div class="panel-top">
-          <p class="kicker">EXPORT</p>
-          <span class="mono-label dim">.WEBM · .SRT</span>
+      <!-- ── 내보내기 스트립 ── -->
+      <section class="nle-panel nle-export" aria-label="내보내기 설정">
+        <div class="nle-panel-head">
+          <span class="mono-label">EXPORT · .WEBM · .SRT · PNG</span>
+          <span class="mono-label dim"><b id="fact-len">0초</b> 길이 · <b id="fact-size">-</b> 예상</span>
         </div>
-        <div class="step-head"><span class="step-no">01</span><h2>파일 설정</h2></div>
-        <div class="field-row">
-          <label class="field"><span>해상도</span><select id="x-resolution" class="input select"></select></label>
-          <label class="field"><span>프레임</span>
-            <select id="x-fps" class="input select">
-              <option value="30">30fps</option>
-              <option value="24">24fps</option>
-            </select>
-          </label>
-        </div>
-        <div class="field-row">
-          <label class="field"><span>배경음</span><select id="x-music" class="input select"></select></label>
-          <label class="field"><span>장면 전환</span>
-            <select id="x-transition" class="input select">
-              <option value="fade">페이드</option>
-              <option value="zoom">줌</option>
-              <option value="none">없음</option>
-            </select>
-          </label>
-        </div>
-        <div class="switch-row">
-          <label class="switch"><input type="checkbox" id="x-progress" checked /> <span>진행 바</span></label>
-          <label class="switch"><input type="checkbox" id="x-caption" checked /> <span>자막</span></label>
-        </div>
-        <label class="field"><span>핸들 (워터마크)</span>
-          <input id="x-handle" class="input" type="text" maxlength="24" placeholder="@myhandle (비우면 표시 안 함)" />
-        </label>
-
-        <div class="export-box">
-          <div class="export-box-row"><span>길이</span><b id="export-len">0초</b></div>
-          <div class="export-box-row"><span>예상 용량</span><b id="export-size">-</b></div>
-          <div class="export-box-row"><span>형식</span><b id="export-format">.webm · VP9</b></div>
-          <p class="export-warn" id="export-warn" hidden>60초를 넘습니다. 플랫폼 권장 길이를 확인하세요.</p>
-        </div>
-
-        <button type="button" class="btn btn-primary btn-lg" id="btn-export" disabled>영상 .webm 만들기</button>
-        <div class="progress" id="export-progress" hidden>
-          <div class="progress-track"><span id="progress-bar"></span></div>
-          <p class="progress-text" id="progress-text" aria-live="polite">녹화 준비 중…</p>
-          <button type="button" class="link-btn muted" id="btn-cancel-export" hidden>그만두기</button>
-        </div>
-
-        <div class="export-result" id="export-result" hidden>
-          <div class="result-head">
-            <h3>완성했습니다</h3>
-            <span class="badge-ok">내 기기에서만</span>
+        <div class="export-grid">
+          <div class="export-fields">
+            <div class="field-row">
+              <label class="field"><span>해상도</span><select id="x-resolution" class="input select"></select></label>
+              <label class="field"><span>프레임</span>
+                <select id="x-fps" class="input select">
+                  <option value="30">30fps</option>
+                  <option value="24">24fps</option>
+                </select>
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field"><span>배경음</span><select id="x-music" class="input select"></select></label>
+              <label class="field"><span>장면 전환</span>
+                <select id="x-transition" class="input select">
+                  <option value="fade">페이드</option>
+                  <option value="zoom">줌</option>
+                  <option value="none">없음</option>
+                </select>
+              </label>
+            </div>
+            <label class="field"><span>핸들 (워터마크)</span>
+              <input id="x-handle" class="input" type="text" maxlength="24" placeholder="@myhandle (비우면 표시 안 함)" />
+            </label>
+            <div class="switch-row">
+              <label class="switch"><input type="checkbox" id="x-progress" checked /> <span>진행 바</span></label>
+              <label class="switch"><input type="checkbox" id="x-caption" checked /> <span>자막</span></label>
+            </div>
           </div>
-          <video id="result-video" controls playsinline preload="metadata"></video>
-          <p class="result-meta" id="result-meta"></p>
-          <a class="btn btn-primary" id="btn-download" href="#" download>파일 저장</a>
-          <p class="form-note">저장하지 않으면 새로고침할 때 사라집니다. 영상 파일은 이 브라우저 안에서만 만들어집니다.</p>
-        </div>
 
-        <div class="export-alt">
-          <h3>함께 받기</h3>
-          <div class="alt-grid">
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-srt">자막 .srt</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-vtt">자막 .vtt</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-png">컷 PNG 5장</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-txt">대본 .txt</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-caption">캡션 복사</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-poster">썸네일 PNG</button>
+          <div class="export-side">
+            <div class="export-box">
+              <div class="export-box-row"><span>길이</span><b id="export-len">0초</b></div>
+              <div class="export-box-row"><span>예상 용량</span><b id="export-size">-</b></div>
+              <div class="export-box-row"><span>형식</span><b id="export-format">.webm · VP9</b></div>
+              <div class="export-box-row"><span>색보정</span><b id="export-grade">뉴트럴</b></div>
+              <p class="export-warn" id="export-warn" hidden>60초를 넘습니다. 플랫폼 권장 길이를 확인하세요.</p>
+            </div>
+            <button type="button" class="btn btn-primary btn-lg" id="btn-export" disabled>영상 .webm 만들기</button>
+            <div class="progress" id="export-progress" hidden>
+              <div class="progress-track"><span id="progress-bar"></span></div>
+              <p class="progress-text" id="progress-text" aria-live="polite">녹화 준비 중…</p>
+              <button type="button" class="link-btn muted" id="btn-cancel-export" hidden>그만두기</button>
+            </div>
+            <div class="export-result" id="export-result" hidden>
+              <div class="result-head">
+                <h3>완성했습니다</h3>
+                <span class="badge-ok">내 기기에서만</span>
+              </div>
+              <video id="result-video" controls playsinline preload="metadata"></video>
+              <p class="result-meta" id="result-meta"></p>
+              <a class="btn btn-primary" id="btn-download" href="#" download>파일 저장</a>
+            </div>
           </div>
-          <p class="hint-inline">자막은 17자 단위로 끊어 세로 화면에 맞춥니다. 캡션에는 훅과 해시태그가 들어갑니다.</p>
+
+          <div class="export-alt">
+            <h3>함께 받기</h3>
+            <div class="alt-grid">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-srt">자막 .srt</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-vtt">자막 .vtt</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-png">컷 PNG 5장</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-txt">대본 .txt</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-caption">캡션 복사</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-poster">썸네일 PNG</button>
+            </div>
+            <p class="hint-inline">자막은 17자 단위로 끊어 세로 화면에 맞추고, 색보정은 녹화 프레임에 그대로 합성됩니다.</p>
+          </div>
         </div>
-      </aside>
+      </section>
     </div>
   </section>
 
@@ -602,6 +678,7 @@
 <script src="core.js"></script>
 <script src="render.js"></script>
 <script src="pro.js"></script>
+<script src="nle.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
