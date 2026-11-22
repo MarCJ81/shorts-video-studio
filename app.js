@@ -42,6 +42,7 @@
     fontsReady: false,
     activeCut: 0,
     modalMode: 'connect',
+    guideBuilt: false,
     quotaWarned: false
   };
 
@@ -1186,6 +1187,7 @@
       $('#btn-play-big').setAttribute('data-playing', 'false');
     }
     if (tab === 'studio') {
+      ensureNLE();
       refreshPreview(true);
       updateStudioFacts();
       if (window.ShortsNLE) window.ShortsNLE.refresh();
@@ -1201,6 +1203,11 @@
     }
     if (tab === 'board') {
       refreshPreview(true);
+    }
+    if (tab === 'guide' && !state.guideBuilt) {
+      state.guideBuilt = true;
+      buildGuide();
+      applyDesignReference();
     }
     try {
       if (history && history.replaceState) history.replaceState(null, '', '#' + tab);
@@ -1610,8 +1617,7 @@
     buildToneCards();
     buildThemeCards();
     buildSamples();
-    buildGuide();
-    renderProviderCards();
+    applyDesignReference();
     bind();
     initPreview();
 
@@ -1638,9 +1644,6 @@
     $('#f-use-voice').checked = false;
     $('#voice-list').hidden = true;
     refreshProState();
-    refreshCapChips();
-    fillProFields();
-    initNLE();
 
     var hash = (location.hash || '').replace('#', '');
     if (hash && ['board', 'studio', 'pro', 'guide'].indexOf(hash) >= 0) go(hash);
@@ -1666,6 +1669,15 @@
   }
 
   /* ── NLE 워크스페이스 연결 ────────────────── */
+  var nleReady = false;
+
+  /** 스튜디오 탭을 처음 열 때만 NLE를 조립한다(첫 화면 로딩을 가볍게). */
+  function ensureNLE() {
+    if (nleReady) return;
+    nleReady = true;
+    initNLE();
+  }
+
   function initNLE() {
     if (!window.ShortsNLE) return;
     window.ShortsNLE.init({
@@ -1716,7 +1728,7 @@
     build: buildStoryboard,
     exportVideo: doExport,
     loadSample: loadSample,
-    nle: function () { return window.ShortsNLE; },
+    nle: function () { ensureNLE(); return window.ShortsNLE; },
     version: C.VERSION
   };
 
