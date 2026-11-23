@@ -367,7 +367,7 @@
   }
 
   /* ── 성우 TTS ─────────────────────────────────────────── */
-  function tts(cfg, text, voice) {
+  function tts(cfg, text, voice, speed) {
     var e = entry(cfg);
     var p = e.provider, d = e.data;
     if (!hasAccess(cfg)) return Promise.reject(new Error('키를 먼저 입력하세요.'));
@@ -378,6 +378,8 @@
     if (!input) return Promise.reject(new Error('읽을 문장이 없습니다.'));
     if (input.length > 4000) input = input.slice(0, 4000);
     var model = d.ttsModel || p.models.tts;
+    var rate = Number(speed);
+    if (!(rate >= 0.25 && rate <= 4)) rate = 1;
 
     if (p.id === 'openai') {
       return fetch('https://api.openai.com/v1/audio/speech', {
@@ -387,6 +389,7 @@
           model: model,
           voice: voice || 'nova',
           input: input,
+          speed: rate,
           response_format: 'mp3'
         })
       }).then(function (res) {
@@ -411,7 +414,7 @@
     return fetch(base + '/tts', {
       method: 'POST',
       headers: withJsonAuth(d),
-      body: JSON.stringify({ text: input, voice: voice || 'nova', model: model })
+      body: JSON.stringify({ text: input, voice: voice || 'nova', model: model, speed: rate })
     }).then(function (res) {
       if (!res.ok) throw new Error('자체 서버 음성 요청이 실패했습니다(' + res.status + ').');
       return res.blob().then(function (blob) {

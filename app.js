@@ -27,6 +27,8 @@
     pro: P.load(),
     voices: [],
     useVoice: false,
+    freeVoiceTimer: 0,
+    oneClickRunning: false,
     preview: null,
     previewAudio: null,
     exportBlob: null,
@@ -120,6 +122,59 @@
 
   function activeCuts() {
     return state.project.cuts || [];
+  }
+
+  /** 대본이 바뀌면 그 문장으로 만든 성우 음성은 더 이상 맞지 않는다. */
+  function invalidateVoices(reason) {
+    var had = state.voices.length > 0;
+    state.voices = [];
+    state.useVoice = false;
+    state.project.voiceSpans = [];
+    var box = $('#voice-list');
+    if (box) { box.innerHTML = ''; box.hidden = true; }
+    var cb = $('#f-use-voice');
+    if (cb) cb.checked = false;
+    if (had && reason) toast(reason);
+  }
+
+  /** 5컷 키워드 → 자동 비주얼(무료). mode: 'auto'|'off'|'keep' */
+  function applyAutoVisuals(mode) {
+    if (mode === 'off') {
+      state.project.autoVisual = false;
+      var off = $('#f-auto-visual'); if (off) off.checked = false;
+      refreshPreview(true);
+      renderStoryboard();
+      queueSave();
+      return;
+    }
+    state.project.autoVisual = true;
+    var on = $('#f-auto-visual'); if (on) on.checked = true;
+    state.project.cuts = C.planVisuals(activeCuts(), state.project);
+    refreshPreview(true);
+    renderStoryboard();
+    queueSave();
+  }
+
+  /** 컷 길이·자막·타임라인 표시를 한 번에 새로 맞춘다. */
+  function refreshTiming() {
+    renderStoryboard();
+    refreshPreview(true);
+    updateStats();
+    updateStudioFacts();
+    updateVoicePreview();
+    updateVoiceFacts();
+    if (window.ShortsNLE) window.ShortsNLE.refresh();
+    queueSave();
+  }
+
+  function updateVoiceFacts() {
+    var el = $('#export-voice');
+    if (!el) return;
+    var n = state.useVoice ? state.voices.length : 0;
+    if (!n) { el.textContent = '없음'; return; }
+    var ms = 0;
+    state.voices.forEach(function (v) { ms += Math.round((v.buffer ? v.buffer.duration : 0) * 1000); });
+    el.textContent = '성우 ' + n + '컷 · ' + (ms / 1000).toFixed(1) + '초';
   }
 
   /* ── 정적 UI ───────────────────────────────────────────── */
@@ -268,6 +323,7 @@
     $('#f-handle').value = p.handle || '';
     $('#f-progress').checked = !!p.showProgress;
     $('#f-caption').checked = !!p.showCaption;
+    if ($('#f-auto-visual')) $('#f-auto-visual').checked = p.autoVisual !== false;
     $$('#tone-cards input').forEach(function (r) { r.checked = r.value === p.tone; });
     $$('#theme-grid .theme-card').forEach(function (c) { c.setAttribute('aria-checked', c.getAttribute('data-theme-id') === p.theme ? 'true' : 'false'); });
     $('#theme-name').textContent = C.themeById(p.theme).name;
@@ -282,6 +338,7 @@
     $('#x-transition').value = p.transition;
     $('#x-progress').checked = !!p.showProgress;
     $('#x-caption').checked = !!p.showCaption;
+    if ($('#f-auto-visual')) $('#f-auto-visual').checked = p.autoVisual !== false;
     $('#x-handle').value = p.handle || '';
     $('#f-music').value = p.music;
     $('#f-transition').value = p.transition;
@@ -312,11 +369,14 @@
     list.innerHTML = cuts.map(function (cut, i) {
       var stage = C.stageById(cut.stage);
       var hasImage = !!cut.image;
+      var visualChip = (!hasImage && cut.visual && state.project.autoVisual !== false)
+        ? '<span class="cut-visual" data-role="visual" data-visual="' + esc(cut.visual.id) + '">🎨 ' + esc(cut.visual.label || '자동 비주얼') + '</span>' : '';
       return '<li class="cut-card" data-cut-index="' + i + '" data-stage="' + cut.stage + '">' +
         '<div class="cut-rail">' +
           '<span class="cut-no">0' + (i + 1) + '</span>' +
           '<span class="cut-stage">' + esc(stage.label) + '</span>' +
           '<span class="cut-sec" data-role="sec">' + cut.duration.toFixed(1) + 's</span>' +
+          visualChip +
         '</div>' +
         '<div class="cut-body">' +
           '<label class="sr-only" for="cut-h-' + i + '">' + (i + 1) + '번 컷 제목</label>' +
@@ -440,6 +500,7 @@
     $('#btn-txt').disabled = !cuts.length;
     $('#btn-caption').disabled = !cuts.length;
     $('#btn-poster').disabled = !cuts.length;
+    updateVoiceFacts();
   }
 
   /* ── 미리보기 ──────────────────────────────────────────── */
@@ -514,15 +575,19 @@
       $('#btn-play-big').setAttribute('data-playing', 'false');
       return;
     }
-    var soundOn = $('#f-preview-sound').checked && state.project.music !== 'none';
-    if (soundOn) {
+    var soundOn = $('#f-preview-sound') && $('#f-preview-sound').checked && state.project.music !== 'none';
+    var voices = state.useVoice ? state.voices.filter(function (v) { return v.buffer; }).map(function (v) {
+      return { buffer: v.buffer, startMs: v.startMs || 0 };
+    }) : [];
+    if (soundOn || voices.length) {
       stopPreviewAudio();
       if (state.preview.ms > 40) state.preview.seek(0);
       try {
-        var engine = new R.AudioEngine(state.project.music, { monitor: true, volume: 0.4 });
+        var style = soundOn ? state.project.music : 'none';
+        var engine = new R.AudioEngine(style, { monitor: true, volume: 0.45 });
         if (engine.ok) {
           engine.resume();
-          engine.start(C.totalMs(activeCuts()), C.timeline(activeCuts()));
+          engine.start(C.totalMs(activeCuts()), C.timeline(activeCuts()), voices, { lead: 0.03 });
           state.previewAudio = engine;
         }
       } catch (e) { /* noop */ }
@@ -556,6 +621,8 @@
     state.images = {};
     state.voices = [];
     state.useVoice = false;
+    state.project.voiceSpans = [];
+    state.project.cuts = C.planVisuals(state.project.cuts, state.project);
     $('#f-use-voice').checked = false;
     $('#voice-list').innerHTML = '';
     $('#voice-list').hidden = true;
@@ -589,9 +656,10 @@
       tone: state.project.tone,
       topic: state.project.topic
     });
-    state.project.cuts = cuts;
+    state.project.cuts = C.planVisuals(cuts, state.project);
     state.project.splits = {};
     state.project.subtitles = [];
+    invalidateVoices('대본을 바꿔서 성우 음성을 초기화했습니다. 다시 만들면 새 문장에 맞춰 싱크됩니다.');
     renderStoryboard();
     refreshPreview(true);
     refreshBridgePrompt();
@@ -659,6 +727,7 @@
     var voices = state.useVoice ? state.voices.map(function (v) {
       return { buffer: v.buffer, startMs: v.startMs };
     }) : [];
+    var voiceCount = voices.length;
 
     R.recordVideo({
       cuts: activeCuts(),
@@ -683,7 +752,9 @@
       $('#btn-download').href = url;
       $('#btn-download').setAttribute('download', state.exportName);
       $('#result-meta').textContent = out.width + '×' + out.height + ' · ' + (out.durationMs / 1000).toFixed(1) + '초 · ' +
-        (out.blob.size / 1048576).toFixed(1) + 'MB · ' + (out.hasAudio ? '배경음 포함' : '무음') + ' · ' + out.ext.toUpperCase();
+        (out.blob.size / 1048576).toFixed(1) + 'MB · ' +
+        (voiceCount ? ('내레이션 ' + voiceCount + '컷' + (out.hasAudio && state.project.music !== 'none' ? ' · 배경음 포함' : ' 포함')) : (out.hasAudio ? '배경음 포함' : '무음')) +
+        ' · ' + out.ext.toUpperCase();
       $('#export-result').hidden = false;
       $('#export-progress').hidden = true;
       toast('영상이 완성됐습니다 · ' + (out.blob.size / 1048576).toFixed(1) + 'MB');
@@ -925,52 +996,59 @@
     return true;
   }
 
-  function aiScript() {
-    if (!requirePro('#ai-script-status')) return;
-    var topic = $('#ai-topic').value.trim() || state.project.topic || $('#f-topic').value.trim();
-    if (!topic) {
-      setStatus('#ai-script-status', '주제를 먼저 입력하세요.', 'error');
-      $('#ai-topic').focus();
-      return;
-    }
-    var tone = $('#ai-tone-select').value;
-    var extra = $('#ai-extra').value.trim();
-    var prompt = C.buildScriptPrompt({ topic: topic, tone: tone, platform: state.project.platform, extra: extra });
-    var btn = $('#btn-ai-script');
-    btn.disabled = true;
-    setStatus('#ai-script-status', '대본을 만드는 중… (10~30초)', 'busy');
-    $('#ai-script-out').hidden = true;
-    $('#btn-ai-apply').hidden = true;
-    P.script(state.pro, { prompt: prompt, topic: topic, tone: tone, platform: state.project.platform }).then(function (res) {
-      var cuts = C.parseAiCuts(res.text);
-      state.aiRaw = res.text;
-      if (!cuts.length) {
-        state.aiDraft = null;
-        $('#ai-script-out').hidden = false;
-        $('#ai-script-out').textContent = res.text.slice(0, 1400);
-        setStatus('#ai-script-status', '응답을 5컷으로 읽지 못했습니다. 아래 원문을 복사해 브리지에 붙여넣어 보세요.', 'error');
-        return;
-      }
-      state.aiDraft = cuts;
-      var out = $('#ai-script-out');
-      out.hidden = false;
-      out.innerHTML = cuts.map(function (c, i) {
-        return '<div class="out-cut"><b>' + (i + 1) + ' · ' + esc(C.stageById(c.stage || 'hook').label) + '</b>' +
-          '<span>' + esc(c.headline) + '</span>' +
-          (c.sub ? '<small>' + esc(c.sub) + '</small>' : '') +
-          (c.direction ? '<small>연출 · ' + esc(c.direction) + '</small>' : '') + '</div>';
-      }).join('');
-      $('#btn-ai-apply').hidden = false;
-      var toneCheck = C.checkAiTone(cuts.map(function (c) { return c.headline + ' ' + c.sub; }).join(' '));
-      var mini = $('#ai-tone-mini');
+  /* ── AI 대본 ──────────────────────────────────────────── */
+  function renderAiDraft(cuts) {
+    var out = $('#ai-script-out');
+    if (!out) return;
+    out.hidden = false;
+    out.innerHTML = cuts.map(function (c, i) {
+      return '<div class="out-cut"><b>' + (i + 1) + ' · ' + esc(C.stageById(c.stage || 'hook').label) + '</b>' +
+        '<span>' + esc(c.headline) + '</span>' +
+        (c.sub ? '<small>' + esc(c.sub) + '</small>' : '') +
+        (c.direction ? '<small>연출 · ' + esc(c.direction) + '</small>' : '') + '</div>';
+    }).join('');
+    var apply = $('#btn-ai-apply');
+    if (apply) apply.hidden = false;
+    var toneCheck = C.checkAiTone(cuts.map(function (c) { return c.headline + ' ' + c.sub; }).join(' '));
+    var mini = $('#ai-tone-mini');
+    if (mini) {
       mini.hidden = false;
       mini.textContent = 'AI 티 점검: ' + toneCheck.score + '/100 · ' + toneCheck.label +
         (toneCheck.hits.length ? ' (' + toneCheck.hits.map(function (h) { return h.word; }).join(', ') + ')' : '');
+    }
+  }
+
+  /** AI 대본 1회 요청 → 5컷 배열(초안에도 저장). */
+  function requestAiCuts(opts) {
+    opts = opts || {};
+    var topic = opts.topic || $('#ai-topic').value.trim() || state.project.topic || $('#f-topic').value.trim();
+    if (!topic) return Promise.reject(new Error('주제를 먼저 입력하세요.'));
+    var tone = opts.tone || $('#ai-tone-select').value;
+    var extra = opts.extra !== undefined ? opts.extra : $('#ai-extra').value.trim();
+    var prompt = C.buildScriptPrompt({ topic: topic, tone: tone, platform: state.project.platform, extra: extra });
+    return P.script(state.pro, { prompt: prompt, topic: topic, tone: tone, platform: state.project.platform }).then(function (res) {
+      state.aiRaw = res.text;
+      var cuts = C.parseAiCuts(res.text);
+      if (!cuts.length) throw new Error('응답을 5컷으로 읽지 못했습니다. 원문을 무료 브리지에 붙여넣어 보세요.');
+      state.aiDraft = cuts;
+      renderAiDraft(cuts);
+      return cuts;
+    });
+  }
+
+  function aiScript() {
+    if (!requirePro('#ai-script-status')) return;
+    var btn = $('#btn-ai-script');
+    if (btn) btn.disabled = true;
+    setStatus('#ai-script-status', '대본을 만드는 중… (10~30초)', 'busy');
+    if ($('#ai-script-out')) $('#ai-script-out').hidden = true;
+    if ($('#btn-ai-apply')) $('#btn-ai-apply').hidden = true;
+    requestAiCuts({}).then(function () {
       setStatus('#ai-script-status', '5컷 대본을 받았습니다. 적용하면 스토리보드가 바뀝니다.', 'ok');
     }).catch(function (err) {
       setStatus('#ai-script-status', err.message || '대본 생성에 실패했습니다.', 'error');
     }).then(function () {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
     });
   }
 
@@ -979,6 +1057,8 @@
     state.project.cuts = C.mergeAiCuts(activeCuts(), state.aiDraft);
     state.project.splits = {};
     state.project.subtitles = [];
+    state.project.cuts = C.planVisuals(state.project.cuts, state.project);
+    invalidateVoices('대본이 바뀌어 성우 음성을 초기화했습니다.');
     if ($('#ai-topic').value.trim()) state.project.topic = $('#ai-topic').value.trim();
     $('#f-topic').value = state.project.topic;
     renderStoryboard();
@@ -1017,34 +1097,55 @@
     el.textContent = cuts.map(function (c, i) { return (i + 1) + ') ' + C.narrationText(c); }).join('\n');
   }
 
+  /* ── AI 컷 이미지 ─────────────────────────────────────── */
+  function imageToDataUrl(res) {
+    if (res && res.dataUrl) return Promise.resolve(res.dataUrl);
+    if (res && res.url) {
+      return fetch(res.url).then(function (r) {
+        if (!r.ok) throw new Error('이미지 주소를 불러오지 못했습니다(' + r.status + ').');
+        return r.blob();
+      }).then(function (blob) {
+        return new Promise(function (resolve, reject) {
+          var fr = new FileReader();
+          fr.onload = function () { resolve(String(fr.result)); };
+          fr.onerror = function () { reject(new Error('이미지를 읽지 못했습니다.')); };
+          fr.readAsDataURL(blob);
+        });
+      });
+    }
+    return Promise.reject(new Error('이미지 데이터가 없습니다.'));
+  }
+
+  function requestImageForCut(cut) {
+    var size = $('#ai-image-size') ? $('#ai-image-size').value : '1024x1536';
+    return P.image(state.pro, C.buildImagePrompt(cut, state.project), size).then(imageToDataUrl);
+  }
+
+  /** 컷에 AI 이미지를 넣는다(썸네일·프리뷰·저장까지). */
+  function setCutImage(index, dataUrl) {
+    var cut = activeCuts()[index];
+    if (!cut) return;
+    cut.image = dataUrl;
+    cut.aiImage = true;
+    cut.imageName = 'AI 생성 이미지';
+    R.dataUrlToImage(cut.image).then(function (img) {
+      state.images[cut.id] = img;
+      refreshPreview(true);
+    }).catch(function () { /* noop */ });
+    renderStoryboard();
+    queueSave();
+  }
+
   function aiImage() {
     if (!requirePro('#ai-image-status')) return;
     var i = Number($('#ai-image-cut').value || 0);
     var cut = activeCuts()[i];
     if (!cut) { setStatus('#ai-image-status', '컷이 없습니다. 스토리보드를 먼저 만드세요.', 'error'); return; }
-    var prompt = C.buildImagePrompt(cut, state.project);
-    var size = $('#ai-image-size').value;
     var btn = $('#btn-ai-image');
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
     setStatus('#ai-image-status', '이미지를 만드는 중… (15~60초)', 'busy');
     $('#ai-image-result').hidden = true;
-    P.image(state.pro, prompt, size).then(function (res) {
-      if (res.dataUrl) return res.dataUrl;
-      if (res.url) {
-        return fetch(res.url).then(function (r) {
-          if (!r.ok) throw new Error('이미지 주소를 불러오지 못했습니다(' + r.status + ').');
-          return r.blob();
-        }).then(function (blob) {
-          return new Promise(function (resolve, reject) {
-            var fr = new FileReader();
-            fr.onload = function () { resolve(String(fr.result)); };
-            fr.onerror = function () { reject(new Error('이미지를 읽지 못했습니다.')); };
-            fr.readAsDataURL(blob);
-          });
-        });
-      }
-      throw new Error('이미지 데이터가 없습니다.');
-    }).then(function (dataUrl) {
+    requestImageForCut(cut).then(function (dataUrl) {
       state.aiImageData = dataUrl;
       $('#ai-image-preview').src = dataUrl;
       $('#ai-image-result').hidden = false;
@@ -1052,76 +1153,296 @@
     }).catch(function (err) {
       setStatus('#ai-image-status', err.message || '이미지 생성에 실패했습니다.', 'error');
     }).then(function () {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
+    });
+  }
+
+  /** 5컷 AI 이미지를 순서대로 만들어 각 컷에 바로 넣는다. */
+  function generateAllImages(statusSel) {
+    var cuts = activeCuts();
+    if (!cuts.length) return Promise.reject(new Error('컷이 없습니다. 스토리보드를 먼저 만드세요.'));
+    var done = 0, failed = [];
+    var chain = Promise.resolve();
+    cuts.forEach(function (cut, i) {
+      chain = chain.then(function () {
+        setStatus(statusSel, 'AI 컷 이미지 ' + (i + 1) + '/' + cuts.length + ' 만드는 중…', 'busy');
+        return requestImageForCut(cut).then(function (dataUrl) {
+          setCutImage(i, dataUrl);
+          done += 1;
+        }).catch(function () {
+          failed.push((i + 1) + '컷');
+        });
+      });
+    });
+    return chain.then(function () {
+      updateAiCutSelect();
+      refreshPreview(true);
+      if (failed.length) setStatus(statusSel, done + '컷 이미지를 넣었습니다. ' + failed.join(', ') + '은 실패해 그래픽 비주얼로 나갑니다.', 'error');
+      else setStatus(statusSel, done + '컷 AI 이미지를 모두 넣었습니다.', 'ok');
+      return { done: done, failed: failed };
+    });
+  }
+
+  function aiImageAll() {
+    if (!requirePro('#ai-image-status')) return;
+    var btn = $('#btn-ai-image-all');
+    if (btn) btn.disabled = true;
+    generateAllImages('#ai-image-status').then(function (r) {
+      if (r.done) toast('AI 컷 이미지 ' + r.done + '장을 넣었습니다');
+    }).catch(function (err) {
+      setStatus('#ai-image-status', err.message || '이미지 생성에 실패했습니다.', 'error');
+    }).then(function () {
+      if (btn) btn.disabled = false;
     });
   }
 
   function applyAiImage() {
     if (!state.aiImageData) return;
     var i = Number($('#ai-image-cut').value || 0);
-    var cut = activeCuts()[i];
-    if (!cut) return;
-    cut.image = state.aiImageData;
-    cut.aiImage = true;
-    cut.imageName = 'AI 생성 이미지';
-    R.dataUrlToImage(cut.image).then(function (img) {
-      state.images[cut.id] = img;
-      refreshPreview(true);
-    }).catch(function () {});
-    renderStoryboard();
-    queueSave();
+    if (!activeCuts()[i]) return;
+    setCutImage(i, state.aiImageData);
+    refreshPreview(true);
     toast((i + 1) + '번 컷에 AI 이미지를 넣었습니다');
     state.aiImageData = null;
     $('#ai-image-result').hidden = true;
     setStatus('#ai-image-status', '적용했습니다. 마음에 안 들면 다시 생성하세요.', 'ok');
   }
 
-  function aiVoice() {
-    if (!requirePro('#ai-voice-status')) return;
+  /* ── 성우 음성 · 자동 싱크 ───────────────────────────── */
+  function voiceSpeed() {
+    var el = $('#ai-voice-speed');
+    var v = el ? Number(el.value) : 1;
+    return v > 0 ? v : 1;
+  }
+
+  /**
+   * 5컷 성우 음성을 순서대로 만들고, 실제 오디오 길이에 맞춰
+   * 컷 길이·타임라인·자막을 다시 붙인다.
+   */
+  function generateVoiceSync(opts) {
+    opts = opts || {};
+    var statusSel = opts.statusSel || '#ai-voice-status';
+    if (!P.hasAccess(state.pro)) return Promise.reject(new Error('Pro 연결이 필요합니다. 아래에서 키를 넣어 주세요.'));
     var cuts = activeCuts();
-    if (!cuts.length) { setStatus('#ai-voice-status', '컷이 없습니다.', 'error'); return; }
-    var voice = $('#ai-voice').value;
-    var btn = $('#btn-ai-voice');
-    btn.disabled = true;
-    $('#voice-list').innerHTML = '';
-    $('#voice-list').hidden = true;
+    if (!cuts.length) return Promise.reject(new Error('컷이 없습니다. 스토리보드를 먼저 만드세요.'));
+    var voice = $('#ai-voice') ? $('#ai-voice').value : 'nova';
+    var speed = voiceSpeed();
     state.voices = [];
-    var tl = C.timeline(cuts);
-    var done = 0;
+    state.useVoice = false;
+    var list = $('#voice-list');
+    if (list) { list.innerHTML = ''; list.hidden = true; }
     var chain = Promise.resolve();
     cuts.forEach(function (cut, i) {
       chain = chain.then(function () {
-        setStatus('#ai-voice-status', '성우 음성 ' + (i + 1) + '/' + cuts.length + ' 만드는 중…', 'busy');
-        return P.tts(state.pro, C.narrationText(cut), voice).then(function (res) {
+        setStatus(statusSel, '성우 음성 ' + (i + 1) + '/' + cuts.length + ' 만드는 중…', 'busy');
+        return P.tts(state.pro, C.narrationText(cut), voice, speed).then(function (res) {
           return P.decodeAudio(res.blob).then(function (buffer) {
             state.voices.push({
-              cutId: cut.id, index: i, buffer: buffer,
+              cutId: cut.id, index: i, buffer: buffer, speed: speed,
+              durationMs: Math.round(buffer.duration * 1000),
               blobUrl: URL.createObjectURL(res.blob)
             });
-            done++;
-            var li = document.createElement('li');
-            li.className = 'voice-item';
-            li.innerHTML = '<b>' + (i + 1) + '컷</b><audio controls preload="metadata" src="' + state.voices[state.voices.length - 1].blobUrl + '"></audio><span class="ok-mark">완료</span>';
-            $('#voice-list').hidden = false;
-            $('#voice-list').appendChild(li);
+            if (list) {
+              var li = document.createElement('li');
+              li.className = 'voice-item';
+              li.innerHTML = '<b>' + (i + 1) + '컷</b><em>' + (buffer.duration).toFixed(1) + '초 음성</em>' +
+                '<audio controls preload="metadata" src="' + state.voices[state.voices.length - 1].blobUrl + '"></audio><span class="ok-mark">완료</span>';
+              list.hidden = false;
+              list.appendChild(li);
+            }
           });
         });
       });
     });
-    chain.then(function () {
+    return chain.then(function () {
+      var durations = state.voices.map(function (v) { return v.durationMs; });
+      var sync = C.syncCutsToNarration(state.project.cuts, durations, { breathMs: C.SPEECH.breathMs });
+      state.project.cuts = sync.cuts;
+      state.project.splits = {};
+      state.project.subtitles = C.reflowSubtitles(state.project.subtitles, state.project.cuts);
+      var tl = C.timeline(state.project.cuts);
       state.voices.forEach(function (v) {
-        var seg = tl[v.index];
-        v.startMs = seg ? seg.start : 0;
-        v.durationMs = Math.round(v.buffer.duration * 1000);
+        var seg = tl[v.index] || { start: 0 };
+        v.startMs = seg.start;
+      });
+      state.project.voiceSpans = state.voices.map(function (v) {
+        return { id: 'voice' + (v.index + 1), cutIndex: v.index, start: v.startMs, end: v.startMs + v.durationMs, label: 'VOICE ' + (v.index + 1) };
       });
       state.useVoice = true;
-      $('#f-use-voice').checked = true;
-      setStatus('#ai-voice-status', done + '개 컷 성우 음성을 만들었습니다. 영상 녹화에 합성됩니다.', 'ok');
-      toast('성우 음성 ' + done + '개 완성');
+      var cb = $('#f-use-voice');
+      if (cb) cb.checked = true;
+      refreshTiming();
+      var total = (C.totalMs(state.project.cuts) / 1000).toFixed(1);
+      setStatus(statusSel, state.voices.length + '컷 성우 음성을 만들고 컷 길이·자막을 음성에 맞췄습니다 · 총 ' + total + '초', 'ok');
+      if (!opts.silent) toast('성우 음성 ' + state.voices.length + '컷 · 타이밍 자동 싱크');
+      return sync;
     }).catch(function (err) {
+      invalidateVoices();
+      throw err;
+    });
+  }
+
+  function aiVoice() {
+    if (!requirePro('#ai-voice-status')) return;
+    var btn = $('#btn-ai-voice');
+    if (btn) btn.disabled = true;
+    generateVoiceSync({}).catch(function (err) {
       setStatus('#ai-voice-status', err.message || '음성 생성에 실패했습니다.', 'error');
     }).then(function () {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
+    });
+  }
+
+  /** 무료: 브라우저 음성으로 대본을 읽어 준다(.webm에는 녹음되지 않음). */
+  function freeVoicePreview() {
+    var synth = window.speechSynthesis;
+    var btn = $('#btn-free-voice');
+    if (!synth || !window.SpeechSynthesisUtterance) {
+      setStatus('#ai-voice-status', '이 브라우저는 미리듣기 음성을 지원하지 않습니다.', 'error');
+      return;
+    }
+    if (state.freeVoiceOn) {
+      try { synth.cancel(); } catch (e) { /* noop */ }
+      state.freeVoiceOn = false;
+      if (btn) btn.textContent = '🔊 무료 미리듣기';
+      setStatus('#ai-voice-status', '미리듣기를 멈췄습니다.', '');
+      return;
+    }
+    var cuts = activeCuts();
+    if (!cuts.length) { setStatus('#ai-voice-status', '컷이 없습니다. 스토리보드를 먼저 만드세요.', 'error'); return; }
+    var rate = voiceSpeed();
+    var ko = (synth.getVoices() || []).filter(function (v) { return /^ko/i.test(v.lang || ''); });
+    var i = 0;
+    state.freeVoiceOn = true;
+    if (btn) btn.textContent = '■ 미리듣기 멈추기';
+    function next() {
+      if (!state.freeVoiceOn) return;
+      if (i >= cuts.length) {
+        state.freeVoiceOn = false;
+        if (btn) btn.textContent = '🔊 무료 미리듣기';
+        setStatus('#ai-voice-status', '미리듣기를 마쳤습니다 · 이 소리는 .webm에 녹음되지 않습니다.', 'ok');
+        return;
+      }
+      var u = new SpeechSynthesisUtterance(C.narrationText(cuts[i]));
+      u.lang = 'ko-KR';
+      u.rate = rate;
+      if (ko.length) u.voice = ko[0];
+      u.onend = function () { i += 1; next(); };
+      u.onerror = function () { i += 1; next(); };
+      setStatus('#ai-voice-status', '무료 미리듣기 ' + (i + 1) + '/' + cuts.length + '컷 · 이 소리는 영상 파일에 녹음되지 않습니다.', 'busy');
+      try { synth.speak(u); } catch (e) { i += 1; next(); }
+    }
+    try { synth.cancel(); } catch (e) { /* noop */ }
+    next();
+  }
+
+  /** 무료: 한국어 발화 속도로 컷 길이·자막 타이밍을 계산한다. */
+  function autoTiming(silent) {
+    var cuts = activeCuts();
+    if (!cuts.length) return null;
+    var speed = voiceSpeed();
+    var est = cuts.map(function (c) { return C.estimateNarrationMs(C.narrationText(c), speed); });
+    var sync = C.syncCutsToNarration(cuts, est, { breathMs: C.SPEECH.breathMs });
+    state.project.cuts = sync.cuts;
+    state.project.splits = {};
+    state.project.subtitles = C.reflowSubtitles(state.project.subtitles, sync.cuts);
+    refreshTiming();
+    var total = (C.totalMs(sync.cuts) / 1000).toFixed(1);
+    setStatus('#ai-voice-status', '발화 속도 기준으로 컷 길이·자막을 맞췄습니다 · 총 ' + total + '초 (브라우저 음성은 영상에 녹음되지 않습니다)', 'ok');
+    if (!silent) toast('컷 길이·자막을 발화 속도에 맞췄습니다');
+    return sync;
+  }
+
+  /* ── 원클릭: 대본 + 비주얼 + 성우 + 싱크 ─────────────── */
+  function proCap(cap) {
+    return P.hasAccess(state.pro) && P.providerById(state.pro.provider).caps.indexOf(cap) >= 0;
+  }
+
+  function runOneClick() {
+    if (state.oneClickRunning) return Promise.resolve({ ok: false, reason: 'running' });
+    var btn = $('#btn-one-click');
+    var topic = ($('#f-topic').value || '').trim() || ($('#ai-topic').value || '').trim();
+    if (!topic) {
+      toast('주제를 먼저 넣어 주세요.', 'error');
+      if ($('#f-topic')) $('#f-topic').focus();
+      return Promise.resolve({ ok: false, reason: 'empty' });
+    }
+    state.oneClickRunning = true;
+    if (btn) { btn.disabled = true; btn.setAttribute('data-running', 'true'); }
+    var proScript = proCap('script'), proImage = proCap('image'), proTts = proCap('tts');
+    var notes = [];
+    function say(text, tone) { setStatus('#one-click-status', text, tone); }
+    say('원클릭 준비 · ' + (proScript ? 'Pro AI' : '무료 엔진') + '로 시작합니다', 'busy');
+
+    var flow = Promise.resolve();
+    flow = flow.then(function () {
+      if ($('#f-topic')) $('#f-topic').value = topic;
+      state.project.topic = topic;
+      if (!proScript) {
+        say('1/4 · 주제로 5컷 대본을 만드는 중…', 'busy');
+        buildStoryboard(true);
+        notes.push('규칙 대본');
+        return null;
+      }
+      say('1/4 · AI가 5컷 대본을 쓰는 중… (10~30초)', 'busy');
+      return requestAiCuts({
+        topic: topic,
+        tone: $('#ai-tone-select') ? $('#ai-tone-select').value : state.project.tone,
+        extra: $('#ai-extra') ? $('#ai-extra').value : ''
+      }).then(function (cuts) {
+        state.project.cuts = C.planVisuals(C.mergeAiCuts(activeCuts(), cuts), state.project);
+        state.project.topic = topic;
+        state.project.splits = {};
+        state.project.subtitles = [];
+        invalidateVoices();
+        renderStoryboard();
+        refreshPreview(false);
+        refreshBridgePrompt();
+        updateAiCutSelect();
+        queueSave();
+        notes.push('AI 대본');
+      });
+    });
+
+    flow = flow.then(function () {
+      say('2/4 · 컷 키워드에 맞는 비주얼을 채우는 중…', 'busy');
+      applyAutoVisuals('auto');
+      notes.push('자동 비주얼');
+    });
+
+    flow = flow.then(function () {
+      if (!proImage) return null;
+      say('3/4 · 5컷 AI 이미지를 만드는 중… (컷당 15~60초)', 'busy');
+      return generateAllImages('#one-click-status').then(function (r) {
+        if (r.done) notes.push('AI 이미지 ' + r.done + '컷');
+      });
+    });
+
+    flow = flow.then(function () {
+      if (proTts) {
+        say('4/4 · 성우 음성을 만들고 컷·자막을 싱크하는 중…', 'busy');
+        return generateVoiceSync({ statusSel: '#one-click-status', silent: true }).then(function () {
+          notes.push('성우 ' + state.voices.length + '컷 싱크');
+        });
+      }
+      say('4/4 · 발화 속도로 컷·자막 타이밍을 맞추는 중…', 'busy');
+      autoTiming(true);
+      notes.push('발화 타이밍');
+      return null;
+    });
+
+    return flow.then(function () {
+      var total = (C.totalMs(activeCuts()) / 1000).toFixed(1);
+      say('완성했습니다 · ' + notes.join(' · ') + ' · 총 ' + total + '초' + (proTts ? '' : ' · 성우는 Pro에서 녹음'), 'ok');
+      toast('원클릭 자동 완성 · ' + total + '초');
+      return { ok: true, notes: notes, totalMs: C.totalMs(activeCuts()) };
+    }).catch(function (err) {
+      say((err && err.message) || '원클릭 자동 완성에 실패했습니다.', 'error');
+      return { ok: false, reason: 'error', message: err && err.message };
+    }).then(function (result) {
+      state.oneClickRunning = false;
+      if (btn) { btn.disabled = false; btn.removeAttribute('data-running'); }
+      return result;
     });
   }
 
@@ -1154,6 +1475,8 @@
     state.project.cuts = C.mergeAiCuts(activeCuts(), cuts);
     state.project.splits = {};
     state.project.subtitles = [];
+    state.project.cuts = C.planVisuals(state.project.cuts, state.project);
+    invalidateVoices();
     renderStoryboard();
     refreshPreview(false);
     refreshBridgePrompt();
@@ -1319,11 +1642,14 @@
         cut.headline = el.value;
         autoGrow(el);
         state.project.subtitles = [];
+        invalidateVoices();
       } else if (el.getAttribute('data-field') === 'sub') {
         cut.sub = el.value;
         state.project.subtitles = [];
+        invalidateVoices();
       } else if (el.classList.contains('cut-duration')) {
         cut.duration = Number(el.value);
+        state.project.subtitles = C.reflowSubtitles(state.project.subtitles, activeCuts());
         var card = el.closest('.cut-card');
         if (card) {
           var dur = card.querySelector('[data-role="dur"]');
@@ -1497,8 +1823,19 @@
     $('#btn-ai-script').addEventListener('click', aiScript);
     $('#btn-ai-apply').addEventListener('click', applyAiDraft);
     $('#btn-ai-image').addEventListener('click', aiImage);
+    $('#btn-ai-image-all').addEventListener('click', aiImageAll);
     $('#btn-ai-image-apply').addEventListener('click', applyAiImage);
     $('#btn-ai-voice').addEventListener('click', aiVoice);
+    $('#btn-free-voice').addEventListener('click', freeVoicePreview);
+    $('#btn-auto-timing').addEventListener('click', function () { autoTiming(false); });
+    $('#btn-auto-visual').addEventListener('click', function () {
+      applyAutoVisuals('auto');
+      toast('컷 키워드에 맞는 비주얼을 채웠습니다');
+    });
+    $('#btn-one-click').addEventListener('click', function () { runOneClick(); });
+    $('#f-auto-visual').addEventListener('change', function () {
+      applyAutoVisuals($('#f-auto-visual').checked ? 'auto' : 'off');
+    });
     $('#ai-image-cut').addEventListener('change', updateImagePromptPreview);
     $('#f-use-voice').addEventListener('change', function () {
       state.useVoice = $('#f-use-voice').checked;
@@ -1641,6 +1978,7 @@
     updateAiCutSelect();
     refreshBridgePrompt();
     updateVoicePreview();
+    updateVoiceFacts();
     $('#f-use-voice').checked = false;
     $('#voice-list').hidden = true;
     refreshProState();
@@ -1684,6 +2022,7 @@
       state: state,
       toast: toast,
       saveSoon: queueSave,
+      invalidateVoices: invalidateVoices,
       seek: function (ms) {
         if (!state.preview) return;
         state.preview.pause();
@@ -1728,6 +2067,11 @@
     build: buildStoryboard,
     exportVideo: doExport,
     loadSample: loadSample,
+    autoVisuals: applyAutoVisuals,
+    oneClick: runOneClick,
+    timing: autoTiming,
+    voiceSync: generateVoiceSync,
+    freeVoice: freeVoicePreview,
     nle: function () { ensureNLE(); return window.ShortsNLE; },
     version: C.VERSION
   };

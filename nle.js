@@ -102,7 +102,9 @@
       '</div>' +
       '<div class="media-item" data-kind="audio">' +
         '<span class="media-ico">A1</span>' +
-        '<div><b>' + esc(p.music === 'none' ? '무음' : musicName(p.music)) + '</b><span class="media-sub">' + (p.music === 'none' ? '배경음 없음' : '합성 · ' + tracks.a1.beats.length + ' beats') + '</span></div>' +
+        '<div><b>' + esc(p.music === 'none' ? '무음' : musicName(p.music)) + '</b><span class="media-sub">' +
+          ((tracks.voiceCount || 0) ? '성우 ' + tracks.voiceCount + '컷 · ' : '') +
+          (p.music === 'none' ? '배경음 없음' : '합성 · ' + tracks.a1.beats.length + ' beats') + '</span></div>' +
         '<span class="media-badge">SYNC</span>' +
       '</div>' +
       '<div class="media-item" data-kind="text">' +
@@ -165,7 +167,12 @@
 
     var marks = $('#tl-a1-marks');
     if (marks) {
-      marks.innerHTML = t.a1.beats.map(function (ms, i) {
+      var voiceHtml = (t.a1.voices || []).map(function (v) {
+        var left = pct(v.start, total), width = Math.max(1.4, pct(v.end - v.start, total));
+        var title = esc(v.label + ' · ' + ((v.end - v.start) / 1000).toFixed(1) + '초');
+        return '<span class="tl-voice" data-cut="' + v.cutIndex + '" style="left:' + left.toFixed(3) + '%;width:' + width.toFixed(3) + '%" title="' + title + '">' + esc(v.label) + '</span>';
+      }).join('');
+      marks.innerHTML = voiceHtml + t.a1.beats.map(function (ms, i) {
         return '<span class="tl-beat" data-strong="' + (i % 4 === 0 ? 'true' : 'false') + '" style="left:' + pct(ms, total).toFixed(3) + '%"></span>';
       }).join('');
     }
@@ -760,6 +767,7 @@
         var cut = api.state.project.cuts[ui.selected.cutIndex];
         if (!cut) return;
         cut.duration = clamp(Number(dur.value) || cut.duration, 0.8, 15);
+        api.state.project.subtitles = C.reflowSubtitles(api.state.project.subtitles, api.state.project.cuts);
         var out = $('#sel-dur-v');
         if (out) out.textContent = cut.duration.toFixed(1) + 's';
         api.onClipEdit('duration');
@@ -775,6 +783,7 @@
           cut.headline = text.value;
           api.state.project.subtitles = [];
           api.state.project.splits = api.state.project.splits || {};
+          if (api.invalidateVoices) api.invalidateVoices();
         } else if (ui.selected.track === 'T1') {
           var list = materializeSubtitles();
           for (var i = 0; i < list.length; i++) {

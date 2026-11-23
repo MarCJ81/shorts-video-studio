@@ -214,6 +214,421 @@
     return true;
   }
 
+  /* ── 자동 비주얼(그래픽 일러스트) ───────────────────────
+     사진이 없는 컷에 키워드별 일러스트 카드를 그린다.
+     미리보기·컷 PNG·.webm 녹화가 모두 같은 1080×1920 캔버스를 쓴다. */
+  function visualPalette(theme) {
+    var dark = luminance(theme.bg) < 0.45;
+    return {
+      dark: dark,
+      key: theme.accent,
+      key2: dark ? '#FFFFFF' : theme.ink,
+      ink: theme.ink,
+      sub: theme.sub,
+      line: theme.line,
+      card: dark ? withAlpha(theme.surface, 0.78) : withAlpha('#FFFFFF', 0.66)
+    };
+  }
+
+  function vline(ctx, x1, y1, x2, y2, color, width, dash) {
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = width || 4; ctx.lineCap = 'round';
+    if (dash && ctx.setLineDash) ctx.setLineDash(dash);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.restore();
+  }
+
+  function vstar(ctx, cx, cy, r, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (var i = 0; i < 8; i++) {
+      var ang = -Math.PI / 2 + i * Math.PI / 4;
+      var rad = i % 2 ? r * 0.34 : r;
+      var px = cx + Math.cos(ang) * rad, py = cy + Math.sin(ang) * rad;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  var VISUAL_PAINTERS = {
+    money: function (ctx, x, y, w, h, p) {
+      var base = y + h - 54;
+      var coin = Math.min(64, w / 9);
+      for (var s = 0; s < 3; s++) {
+        var cx = x + 90 + s * (coin * 1.5);
+        var stack = 2 + (s % 2) + (s === 2 ? 2 : 0);
+        for (var k = 0; k < stack; k++) {
+          ctx.save();
+          ctx.fillStyle = k === stack - 1 ? p.key : withAlpha(p.key, 0.55);
+          ctx.beginPath();
+          ctx.ellipse(cx, base - k * coin * 0.34, coin * 0.62, coin * 0.24, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = withAlpha(p.ink, 0.18); ctx.lineWidth = 2; ctx.stroke();
+          ctx.restore();
+        }
+      }
+      var ax = x + 90, ay = base - coin * 1.3, bx = x + w - 140, by = y + 60;
+      vline(ctx, ax, ay, bx, by, withAlpha(p.key, 0.9), 10);
+      vline(ctx, bx, by, bx - 44, by + 6, withAlpha(p.key, 0.9), 10);
+      vline(ctx, bx, by, bx - 6, by + 44, withAlpha(p.key, 0.9), 10);
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.ink, 0.86);
+      ctx.font = font(Math.min(92, h * 0.24), 800); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('₩', x + w - 84, y + h * 0.42);
+      ctx.restore();
+    },
+    time: function (ctx, x, y, w, h, p) {
+      var cx = x + 140, cy = y + h / 2, r = Math.min(118, h * 0.36);
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.key, 0.12); ctx.beginPath(); ctx.arc(cx, cy, r + 16, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = withAlpha(p.key, 0.95); ctx.lineWidth = 9;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+      for (var i = 0; i < 12; i++) {
+        var a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+        var r1 = r - (i % 3 === 0 ? 30 : 18), r2 = r - 8;
+        vline(ctx, cx + Math.cos(a) * r1, cy + Math.sin(a) * r1, cx + Math.cos(a) * r2, cy + Math.sin(a) * r2, withAlpha(p.ink, i % 3 === 0 ? 0.8 : 0.45), i % 3 === 0 ? 6 : 3);
+      }
+      vline(ctx, cx, cy, cx + Math.cos(-Math.PI / 3) * r * 0.52, cy + Math.sin(-Math.PI / 3) * r * 0.52, p.ink, 8);
+      vline(ctx, cx, cy, cx + Math.cos(Math.PI / 2.3) * r * 0.72, cy + Math.sin(Math.PI / 2.3) * r * 0.72, p.key, 6);
+      ctx.fillStyle = p.key; ctx.beginPath(); ctx.arc(cx, cy, 11, 0, Math.PI * 2); ctx.fill();
+      for (var j = 0; j < 3; j++) {
+        var bx = x + w * 0.5 + j * 34, by = y + 78 + j * 108;
+        ctx.fillStyle = withAlpha(p.ink, 0.10);
+        roundRect(ctx, bx, by, w * 0.44 - j * 30, 54, 27); ctx.fill();
+        ctx.fillStyle = withAlpha(p.key, 0.85);
+        roundRect(ctx, bx + 14, by + 20, 46 + j * 18, 12, 6); ctx.fill();
+      }
+      ctx.restore();
+    },
+    clean: function (ctx, x, y, w, h, p) {
+      var bx = x + 90, by = y + 86, bw = 130, bh = h - 170;
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.key, 0.9);
+      roundRect(ctx, bx, by + 60, bw, bh, 34); ctx.fill();
+      ctx.fillStyle = withAlpha(p.ink, 0.85);
+      roundRect(ctx, bx + 34, by, 62, 74, 14); ctx.fill();
+      roundRect(ctx, bx + 30, by - 6, 150, 26, 13); ctx.fill();
+      roundRect(ctx, bx + 84, by + 44, 28, 30, 10); ctx.fill();
+      ctx.fillStyle = withAlpha(p.key2, 0.9);
+      roundRect(ctx, bx + 94, by + 110, 42, 74, 8); ctx.fill();
+      for (var i = 0; i < 9; i++) {
+        var ang = (i * 41 + 12) * Math.PI / 180;
+        var dist = 92 + (i % 4) * 46;
+        var cx = bx + 200 + Math.cos(ang) * dist, cy = by + 84 + Math.sin(ang) * dist * 0.8;
+        ctx.strokeStyle = withAlpha(p.key, 0.6 - (i % 4) * 0.09); ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(cx, cy, 9 + (i % 3) * 7, 0, Math.PI * 2); ctx.stroke();
+      }
+      vstar(ctx, x + w - 90, y + 70, 28, withAlpha(p.key, 0.9));
+      vstar(ctx, x + w - 150, y + h - 80, 18, withAlpha(p.ink, 0.5));
+      ctx.restore();
+    },
+    food: function (ctx, x, y, w, h, p) {
+      var cx = x + w * 0.5, cy = y + h * 0.58, r = Math.min(206, h * 0.47);
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.key, 0.92);
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0.08, Math.PI - 0.08); ctx.fill();
+      ctx.fillStyle = withAlpha(p.key2, 0.35);
+      ctx.beginPath(); ctx.ellipse(cx, cy, r, r * 0.26, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = withAlpha(p.ink, 0.55); ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.ellipse(cx, cy, r, r * 0.26, 0, 0, Math.PI * 2); ctx.stroke();
+      for (var i = 0; i < 3; i++) {
+        var sx = cx - 52 + i * 52;
+        ctx.strokeStyle = withAlpha(p.key2, 0.65 - i * 0.12); ctx.lineWidth = 7; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(sx, cy - r * 0.4);
+        ctx.bezierCurveTo(sx - 22, cy - r * 0.75, sx + 26, cy - r * 0.95, sx + 4, cy - r * 1.25);
+        ctx.stroke();
+      }
+      vline(ctx, cx + r * 0.55, cy - r * 1.2, cx + r * 1.35, cy + 30, withAlpha(p.ink, 0.65), 5);
+      vline(ctx, cx + r * 0.75, cy - r * 1.26, cx + r * 1.5, cy + 16, withAlpha(p.ink, 0.65), 5);
+      ctx.restore();
+    },
+    fitness: function (ctx, x, y, w, h, p) {
+      var cy = y + h * 0.46, cx = x + w * 0.42, span = Math.min(360, w * 0.55);
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.ink, 0.82);
+      roundRect(ctx, cx - span / 2, cy - 14, span, 28, 14); ctx.fill();
+      [-1, 1].forEach(function (s) {
+        var px = cx + s * span / 2;
+        ctx.fillStyle = withAlpha(p.key, 0.95);
+        roundRect(ctx, px - (s > 0 ? 26 : 26), cy - 62, 52, 124, 16); ctx.fill();
+        ctx.fillStyle = withAlpha(p.key2, 0.55);
+        roundRect(ctx, px + s * 30 - 13, cy - 42, 26, 84, 10); ctx.fill();
+      });
+      ctx.strokeStyle = withAlpha(p.key, 0.9); ctx.lineWidth = 7; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      var yy = y + h - 74;
+      ctx.moveTo(x + 60, yy);
+      ctx.lineTo(x + w * 0.32, yy);
+      ctx.lineTo(x + w * 0.4, yy - 54);
+      ctx.lineTo(x + w * 0.48, yy + 22);
+      ctx.lineTo(x + w * 0.56, yy);
+      ctx.lineTo(x + w - 70, yy);
+      ctx.stroke();
+      ctx.restore();
+    },
+    business: function (ctx, x, y, w, h, p) {
+      var base = y + h - 58;
+      var bars = [0.42, 0.62, 0.84];
+      for (var i = 0; i < 3; i++) {
+        var bw = Math.min(110, w / 7), bx = x + 70 + i * (bw + 34), bh = h * bars[i] * 0.72;
+        ctx.save();
+        ctx.fillStyle = withAlpha(p.key, i === 2 ? 0.95 : 0.32 + i * 0.18);
+        roundRect(ctx, bx, base - bh, bw, bh, 10); ctx.fill();
+        ctx.fillStyle = withAlpha(p.ink, 0.25);
+        for (var r = 0; r < 4; r++) for (var c = 0; c < 2; c++) {
+          roundRect(ctx, bx + 16 + c * 40, base - bh + 22 + r * 34, 22, 16, 4); ctx.fill();
+        }
+        ctx.restore();
+      }
+      var ax = x + 70, ay = base - h * 0.34, bx2 = x + w - 110, by2 = y + 58;
+      vline(ctx, ax, ay, bx2, by2, withAlpha(p.ink, 0.75), 9);
+      vline(ctx, bx2, by2, bx2 - 42, by2 + 4, withAlpha(p.ink, 0.75), 9);
+      vline(ctx, bx2, by2, bx2 - 4, by2 + 42, withAlpha(p.ink, 0.75), 9);
+      vstar(ctx, x + w - 70, y + h - 70, 20, withAlpha(p.key, 0.8));
+    },
+    tech: function (ctx, x, y, w, h, p) {
+      var pw = Math.min(200, h * 0.46), ph = h - 70, px = x + 76, py = y + 34;
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.ink, 0.82);
+      roundRect(ctx, px, py, pw, ph, 30); ctx.fill();
+      ctx.fillStyle = p.dark ? '#0B0F18' : '#FFFFFF';
+      roundRect(ctx, px + 12, py + 16, pw - 24, ph - 32, 22); ctx.fill();
+      for (var i = 0; i < 4; i++) {
+        ctx.fillStyle = withAlpha(p.key, 0.35 + i * 0.15);
+        roundRect(ctx, px + 30 + (i % 2) * 72, py + 44 + Math.floor(i / 2) * 72, 52, 52, 14); ctx.fill();
+      }
+      ctx.strokeStyle = withAlpha(p.key, 0.95); ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(px + 28, py + ph - 70);
+      ctx.lineTo(px + 62, py + ph - 104);
+      ctx.lineTo(px + 96, py + ph - 88);
+      ctx.lineTo(px + 136, py + ph - 136);
+      ctx.stroke();
+      var cx = px + pw + 150, cy = y + h * 0.44;
+      ctx.strokeStyle = withAlpha(p.key, 0.55); ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(cx, cy, 150, 96, -0.32, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = withAlpha(p.key, 0.95);
+      ctx.beginPath(); ctx.arc(cx + 132, cy - 58, 22, 0, Math.PI * 2); ctx.fill();
+      vstar(ctx, cx - 70, cy + 82, 24, withAlpha(p.ink, 0.55));
+      vstar(ctx, x + w - 60, y + 54, 18, withAlpha(p.key, 0.85));
+      ctx.restore();
+    },
+    health: function (ctx, x, y, w, h, p) {
+      var cx = x + w * 0.42, cy = y + h * 0.5, s = Math.min(160, h * 0.42);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.fillStyle = withAlpha(p.key, 0.92);
+      ctx.beginPath();
+      ctx.moveTo(0, s * 0.62);
+      ctx.bezierCurveTo(-s * 1.25, -s * 0.1, -s * 0.62, -s * 1.05, 0, -s * 0.42);
+      ctx.bezierCurveTo(s * 0.62, -s * 1.05, s * 1.25, -s * 0.1, 0, s * 0.62);
+      ctx.fill();
+      ctx.strokeStyle = withAlpha(p.key2, 0.85); ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.72, 0); ctx.lineTo(-s * 0.28, 0); ctx.lineTo(-s * 0.1, -s * 0.34);
+      ctx.lineTo(s * 0.1, s * 0.2); ctx.lineTo(s * 0.24, 0); ctx.lineTo(s * 0.66, 0);
+      ctx.stroke();
+      ctx.translate(s * 1.05, -s * 0.75);
+      ctx.fillStyle = withAlpha(p.ink, 0.85);
+      roundRect(ctx, -46, -46, 92, 92, 22); ctx.fill();
+      ctx.fillStyle = withAlpha(p.card, 1);
+      roundRect(ctx, -9, -30, 18, 60, 6); ctx.fill();
+      roundRect(ctx, -30, -9, 60, 18, 6); ctx.fill();
+      ctx.restore();
+    },
+    home: function (ctx, x, y, w, h, p) {
+      var bw = Math.min(300, w * 0.44), bh = h * 0.5, bx = x + 100, by = y + h * 0.44;
+      ctx.save();
+      ctx.strokeStyle = withAlpha(p.key, 0.95); ctx.lineWidth = 9; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx - 34, by); ctx.lineTo(bx + bw / 2, by - bh * 0.62); ctx.lineTo(bx + bw + 34, by);
+      ctx.stroke();
+      ctx.fillStyle = withAlpha(p.ink, 0.14);
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.fillStyle = withAlpha(p.key, 0.9);
+      roundRect(ctx, bx + bw / 2 - 34, by + bh - 92, 68, 92, 6); ctx.fill();
+      ctx.strokeStyle = withAlpha(p.key2, 0.7); ctx.lineWidth = 4;
+      ctx.strokeRect(bx + 26, by + 30, 62, 62);
+      vline(ctx, bx + 57, by + 30, bx + 57, by + 92, withAlpha(p.key2, 0.7), 4);
+      vline(ctx, bx + 26, by + 61, bx + 88, by + 61, withAlpha(p.key2, 0.7), 4);
+      var px = bx + bw + 120, py = by + bh;
+      ctx.fillStyle = withAlpha(p.key, 0.85);
+      roundRect(ctx, px - 34, py - 46, 68, 46, 10); ctx.fill();
+      for (var i = 0; i < 3; i++) {
+        var a = -Math.PI / 2 + (i - 1) * 0.55;
+        ctx.fillStyle = withAlpha(p.key, 0.55 + i * 0.12);
+        ctx.beginPath(); ctx.ellipse(px + Math.cos(a) * 26, py - 70 + Math.sin(a) * 34, 18, 40, a, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = withAlpha(p.key2, 0.35);
+      ctx.beginPath(); ctx.arc(x + w - 74, y + 66, 34, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+    study: function (ctx, x, y, w, h, p) {
+      var cx = x + w * 0.42, cy = y + h * 0.62, bw = Math.min(360, w * 0.6);
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.ink, 0.16);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 60); ctx.quadraticCurveTo(cx - bw * 0.55, cy - 96, cx - bw * 0.55, cy + 92);
+      ctx.quadraticCurveTo(cx - bw * 0.24, cy + 62, cx, cy + 96);
+      ctx.quadraticCurveTo(cx + bw * 0.24, cy + 62, cx + bw * 0.55, cy + 92);
+      ctx.quadraticCurveTo(cx + bw * 0.55, cy - 96, cx, cy - 60);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = withAlpha(p.ink, 0.7); ctx.lineWidth = 6; ctx.stroke();
+      vline(ctx, cx, cy - 58, cx, cy + 92, withAlpha(p.key, 0.9), 6);
+      for (var i = 0; i < 4; i++) {
+        vline(ctx, cx - bw * 0.4, cy - 34 + i * 28, cx - bw * 0.1, cy - 38 + i * 28, withAlpha(p.key2, 0.45), 4);
+        vline(ctx, cx + bw * 0.1, cy - 38 + i * 28, cx + bw * 0.4, cy - 34 + i * 28, withAlpha(p.key2, 0.45), 4);
+      }
+      var lx = cx, ly = y + h * 0.22;
+      ctx.fillStyle = withAlpha(p.key, 0.95);
+      ctx.beginPath(); ctx.arc(lx, ly, 44, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = p.dark ? '#101014' : '#FFFFFF';
+      ctx.fillRect(lx - 12, ly + 30, 24, 26);
+      ctx.strokeStyle = withAlpha(p.key, 0.8); ctx.lineWidth = 5;
+      for (var k = 0; k < 6; k++) {
+        var a2 = -Math.PI / 2 + (k - 2.5) * 0.42;
+        vline(ctx, lx + Math.cos(a2) * 58, ly + Math.sin(a2) * 58, lx + Math.cos(a2) * 82, ly + Math.sin(a2) * 82, withAlpha(p.key, 0.5), 5);
+      }
+      ctx.restore();
+    },
+    travel: function (ctx, x, y, w, h, p) {
+      var cx = x + w * 0.36, cy = y + h * 0.44;
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.key, 0.95);
+      ctx.beginPath(); ctx.arc(cx, cy, 74, Math.PI * 0.82, Math.PI * 0.18);
+      ctx.lineTo(cx, cy + 120); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = p.dark ? '#101014' : '#FFFFFF';
+      ctx.beginPath(); ctx.arc(cx, cy, 28, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = withAlpha(p.key, 0.55); ctx.lineWidth = 5;
+      if (ctx.setLineDash) ctx.setLineDash([14, 16]);
+      ctx.beginPath(); ctx.moveTo(cx + 92, cy + 34); ctx.bezierCurveTo(cx + 220, cy + 120, cx + 300, cy - 20, cx + 420, cy + 60); ctx.stroke();
+      if (ctx.setLineDash) ctx.setLineDash([]);
+      var bx = x + w - 210, by = y + h - 150;
+      ctx.fillStyle = withAlpha(p.ink, 0.32);
+      roundRect(ctx, bx, by, 150, 110, 18); ctx.fill();
+      ctx.strokeStyle = withAlpha(p.ink, 0.65); ctx.lineWidth = 5;
+      roundRect(ctx, bx, by, 150, 110, 18); ctx.stroke();
+      vline(ctx, bx + 46, by, bx + 46, by - 24, withAlpha(p.key, 0.9), 10);
+      vline(ctx, bx + 104, by, bx + 104, by - 24, withAlpha(p.key, 0.9), 10);
+      ctx.restore();
+    },
+    warning: function (ctx, x, y, w, h, p) {
+      var cx = x + w * 0.42, cy = y + h * 0.52, s = Math.min(180, h * 0.44);
+      ctx.save();
+      ctx.fillStyle = withAlpha(p.key, 0.92);
+      ctx.beginPath(); ctx.moveTo(cx, cy - s); ctx.lineTo(cx + s, cy + s * 0.82); ctx.lineTo(cx - s, cy + s * 0.82); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = withAlpha(p.dark ? '#0B0B0F' : '#FFFFFF', 0.95);
+      roundRect(ctx, cx - 12, cy - s * 0.42, 24, s * 0.72, 8); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy + s * 0.44, 15, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = withAlpha(p.ink, 0.35); ctx.lineWidth = 5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x + w - 160, y + 60); ctx.lineTo(x + w - 110, y + 110); ctx.lineTo(x + w - 150, y + 150); ctx.lineTo(x + w - 84, y + 196); ctx.stroke();
+      ctx.restore();
+    },
+    spark: function (ctx, x, y, w, h, p) {
+      var cx = x + w * 0.4, cy = y + h * 0.5;
+      ctx.save();
+      for (var i = 0; i < 4; i++) {
+        ctx.strokeStyle = withAlpha(p.key, 0.5 - i * 0.09); ctx.lineWidth = 6 - i;
+        ctx.beginPath(); ctx.arc(cx, cy, 46 + i * 42, -Math.PI * 0.15, Math.PI * 1.15); ctx.stroke();
+      }
+      vstar(ctx, cx + 10, cy - 6, 46, withAlpha(p.key, 0.95));
+      vstar(ctx, x + w - 120, y + 84, 26, withAlpha(p.ink, 0.55));
+      vstar(ctx, x + w - 210, y + h - 80, 18, withAlpha(p.key, 0.75));
+      for (var j = 0; j < 3; j++) {
+        vline(ctx, x + w * 0.66 + j * 26, y + h * 0.16, x + w * 0.82 + j * 26, y + h * 0.76, withAlpha(p.key2, 0.16), 10);
+      }
+      ctx.restore();
+    }
+  };
+
+  /** 컷 하단의 자동 비주얼 카드. 사진이 없을 때만 그린다. */
+  function drawAutoVisual(ctx, s) {
+    var v = s.cut && s.cut.visual;
+    if (!v) return false;
+    if (s.project && s.project.autoVisual === false) return false;
+    var th = s.theme;
+    var p = visualPalette(th);
+    var x = M, y = 1210, w = W - M * 2, h = 455;
+    var enter = easeOut(clamp((s.p || 0) * 3.2, 0, 1));
+    var paint = VISUAL_PAINTERS[v.id] || VISUAL_PAINTERS.spark;
+    var hasStat = !!(v.stat && v.stat.value);
+
+    ctx.save();
+    ctx.globalAlpha = 0.55 + 0.45 * enter;
+    var glow = ctx.createRadialGradient(x + w * 0.3, y + h * 0.55, 20, x + w * 0.3, y + h * 0.55, w * 0.62);
+    glow.addColorStop(0, withAlpha(th.accent, 0.2));
+    glow.addColorStop(1, withAlpha(th.accent, 0));
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - 120, y - 90, w + 240, h + 180);
+
+    ctx.translate(0, (1 - enter) * 34);
+    roundRect(ctx, x, y, w, h, 30);
+    ctx.fillStyle = p.card; ctx.fill();
+    ctx.strokeStyle = withAlpha(th.line, 0.85); ctx.lineWidth = 2; ctx.stroke();
+
+    // 카드 안쪽의 은은한 광원·코너 마커로 빈 느낌을 줄인다.
+    ctx.save();
+    roundRect(ctx, x, y, w, h, 30); ctx.clip();
+    var inner = ctx.createLinearGradient(x, y, x + w, y + h);
+    inner.addColorStop(0, withAlpha(th.accent, 0.10));
+    inner.addColorStop(0.55, withAlpha(th.accent, 0.015));
+    inner.addColorStop(1, withAlpha(th.accent, 0.07));
+    ctx.fillStyle = inner; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = withAlpha(th.accent, 0.5); ctx.lineWidth = 4;
+    [[x + 22, y + 22, 1, 1], [x + w - 22, y + 22, -1, 1], [x + 22, y + h - 22, 1, -1], [x + w - 22, y + h - 22, -1, -1]].forEach(function (c) {
+      ctx.beginPath();
+      ctx.moveTo(c[0], c[1] + 34 * c[3]); ctx.lineTo(c[0], c[1]); ctx.lineTo(c[0] + 34 * c[2], c[1]);
+      ctx.stroke();
+    });
+    ctx.restore();
+
+    ctx.save();
+    roundRect(ctx, x, y, w, h, 30); ctx.clip();
+    var motifW = hasStat ? w - 250 : w - 24;
+    var mx = x + (hasStat ? 6 : 12);
+    var my = y + 6;
+    var seed = Math.abs(Number(v.seed) || 0);
+    var mir = seed % 2 ? -1 : 1;
+    var sc = 1.08 + (seed % 5) * 0.02;
+    var rot = ((seed % 7) - 3) * 0.008;
+    var ccx = mx + motifW / 2, ccy = my + (h - 12) / 2;
+    ctx.save();
+    // 같은 키워드라도 컷마다 시드로 방향·기울기·크기를 달리해 반복감을 줄인다.
+    ctx.translate(ccx, ccy);
+    ctx.scale(mir * sc, sc);
+    ctx.rotate(rot);
+    ctx.translate(-ccx, -ccy);
+    try { paint(ctx, mx, my, motifW, h - 12, p, seed); } catch (e) { /* 한 그림 실패는 넘어간다 */ }
+    ctx.restore();
+    ctx.restore();
+
+    if (hasStat) {
+      var sx = x + w - 196;
+      vline(ctx, x + w - 258, y + 34, x + w - 258, y + h - 34, withAlpha(th.line, 0.9), 2);
+      ctx.save();
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = withAlpha(th.accent, 0.98);
+      var val = String(v.stat.value);
+      var size = val.length >= 5 ? 108 : (val.length === 4 ? 122 : 142);
+      ctx.font = font(size, 800);
+      var capH = size * 0.72;
+      var valY = y + h / 2 + (v.stat.unit ? capH * 0.16 : capH * 0.35);
+      ctx.fillText(val, sx, valY);
+      if (v.stat.unit) {
+        ctx.font = font(50, 700);
+        ctx.fillStyle = withAlpha(th.ink, 0.8);
+        ctx.fillText(v.stat.unit, sx + 4, valY + 58);
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+    return true;
+  }
+
   /* ── 글자 ─────────────────────────────────────────────── */
   function wrapByWidth(ctx, text, maxW) {
     var words = String(text).replace(/\s+/g, ' ').trim().split(' ');
@@ -327,6 +742,11 @@
     if (hasImage) drawImageLayer(ctx, s.image, p);
     if (th.deco !== 'neon') noise(ctx, th.deco === 'paper' ? 0.05 : 0.07);
 
+    var hasVisual = false;
+    if (!hasImage) {
+      try { hasVisual = drawAutoVisual(ctx, Object.assign({}, s, { p: p })); } catch (e) { hasVisual = false; }
+    }
+
     var colors = hasImage
       ? { ink: '#FFFCF4', sub: '#EFE3D3', bg: '#0C0A08', chipAccent: th.accent }
       : { ink: th.ink, sub: th.sub, bg: th.bg, chipAccent: th.accent };
@@ -354,7 +774,9 @@
     var fit = fitHeadline(ctx, headline, maxW, 4, 128, 62, th.weight || 700);
     var lh = Math.round(fit.size * 1.16);
     var blockH = fit.lines.length * lh;
-    var top = 930 - blockH / 2 + (hasImage ? 30 : 0);
+    // 자동 비줼얼 카드(하단)와 살지 않도록 글자 블록을 위로 올린다.
+    var centerY = hasImage ? 960 : (hasVisual ? 700 : 930);
+    var top = centerY - blockH / 2 + (hasImage ? 30 : 0);
     if (top < 300) top = 300;
     var tokens = highlightTokens(cut);
 
@@ -389,7 +811,7 @@
       ctx.globalAlpha = e2 * 0.9;
       ctx.strokeStyle = withAlpha(th.accent, 0.9);
       ctx.lineWidth = 5; ctx.lineCap = 'round';
-      var ay = H - 300;
+      var ay = hasVisual ? 1170 : H - 300;
       ctx.beginPath(); ctx.moveTo(M, ay); ctx.lineTo(M + 34, ay); ctx.lineTo(M + 22, ay - 12); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(M, ay); ctx.lineTo(M + 34, ay); ctx.lineTo(M + 22, ay + 12); ctx.stroke();
       ctx.restore();
@@ -699,20 +1121,28 @@
     src.connect(bp); bp.connect(g); g.connect(this.master);
     src.start(at); src.stop(at + 0.5);
   };
-  AudioEngine.prototype.playVoice = function (buffer, at) {
+  AudioEngine.prototype.playVoice = function (buffer, at, gain) {
     if (!buffer || !this.ac) return;
     var src = this.ac.createBufferSource();
     var g = this.ac.createGain();
     src.buffer = buffer;
-    g.gain.value = 1;
+    g.gain.value = gain === undefined ? 1 : gain;
     src.connect(g); g.connect(this.master);
     src.start(at);
   };
-  AudioEngine.prototype.start = function (totalMs, timelines, voices) {
+  /**
+   * 배경음 + 성우 음성을 한 AudioContext에서 합성한다.
+   * style 'none'은 음악 없이 성우·효과음만 낸다(내레이션 전용 영상).
+   * voices: [{buffer, startMs, gain}] — 각 컷 시작 시각에 정확히 놓인다.
+   */
+  AudioEngine.prototype.start = function (totalMs, timelines, voices, opts) {
     if (!this.ok) return;
+    opts = opts || {};
     var self = this, ac = this.ac;
     var totalSec = Math.max(1, totalMs / 1000);
-    this.t0 = ac.currentTime + 0.08;
+    var lead = typeof opts.lead === 'number' ? Math.max(0, opts.lead) : 0.08;
+    this.t0 = ac.currentTime + lead;
+    var silentMusic = this.style === 'none';
     var chords = {
       lofi: [[196, 246.94, 293.66], [174.61, 220, 261.63], [164.81, 196, 246.94], [146.83, 185, 220]],
       calm: [[261.63, 329.63, 392], [220, 261.63, 329.63], [174.61, 220, 261.63], [196, 246.94, 293.66]],
@@ -730,11 +1160,13 @@
     this.master.gain.linearRampToValueAtTime(0.0001, this.t0 + totalSec);
 
     (timelines || []).forEach(function (seg) {
-      if (seg.start > 0) self.whoosh(self.t0 + seg.start / 1000);
+      if (!silentMusic && seg.start > 0) self.whoosh(self.t0 + seg.start / 1000);
     });
     (voices || []).forEach(function (v) {
-      if (v && v.buffer) self.playVoice(v.buffer, self.t0 + (v.startMs || 0) / 1000 + 0.05);
+      if (v && v.buffer) self.playVoice(v.buffer, self.t0 + (v.startMs || 0) / 1000, v.gain);
     });
+
+    if (silentMusic) return;
 
     var horizon = this.t0 + 1.6;
     function schedule() {
@@ -960,13 +1392,12 @@
     var mime = pickMime(false);
     if (wantsAudio) {
       try {
-        audio = new AudioEngine(project.music === 'none' ? 'calm' : project.music, { monitor: false });
+        audio = new AudioEngine(project.music === 'none' ? 'none' : project.music, { monitor: false });
         if (audio.ok) {
           await audio.resume();
           var withAudio = pickMime(true);
           if (/opus/.test(withAudio) || /mp4/.test(withAudio)) {
             mime = withAudio;
-            audio.start(total, C.timeline(cuts), opts.voices || []);
             audio.stream().getAudioTracks().forEach(function (t) { try { stream.addTrack(t); } catch (e) { /* noop */ } });
           } else {
             audio.stop();
@@ -994,10 +1425,13 @@
     });
 
     var scaleX = width / W, scaleY = height / H;
-    var t0 = performance.now();
     var lastReport = 0;
     var cancelled = false;
     rec.start(250);
+    // 녹화기의 오디오 트랙은 rec.start 시점부터 기록된다. 성우를 영상 0초에
+    // 맞추기 위해 20ms 리드만 두고 같은 순간에 출발시킨다.
+    if (audio) audio.start(total, C.timeline(cuts), opts.voices || [], { lead: 0.02 });
+    var t0 = performance.now();
 
     await new Promise(function (resolve) {
       function frame(now) {

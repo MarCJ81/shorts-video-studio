@@ -747,6 +747,112 @@ const appJs = fs.readFileSync(path.join(HERE, 'app.js'), 'utf8');
 includes(appJs, 'ShortsNLE', 'app: NLE 초기화 연결');
 includes(appJs, 'onSwarmChange', 'app: 스웜 반영 콜백');
 
+/* ══════════════════════════════════════════════════════════
+   10. 내레이션 싱크 · 자동 비주얼
+   ══════════════════════════════════════════════════════════ */
+group('내레이션 싱크');
+const nShort = C.estimateNarrationMs('물은 매일 갈아요');
+const nLong = C.estimateNarrationMs('가습기 물은 매일 갈아 주고 주 1회 식초 물에 10분 담가 두세요');
+ok(nShort >= C.SPEECH.minMs && nShort <= C.SPEECH.maxMs, '발화 길이 범위', nShort);
+ok(nLong > nShort, '긴 문장이 더 길다', nShort + ' / ' + nLong);
+const nSlow = C.estimateNarrationMs('가습기 물은 매일 갈아 주세요', 0.9);
+const nFast = C.estimateNarrationMs('가습기 물은 매일 갈아 주세요', 1.1);
+ok(nSlow > nFast, '느리게가 더 길다', nSlow + ' / ' + nFast);
+const p1 = C.speechProfile('가습기, 물을 갈아요.');
+ok(p1.syllables >= 8 && p1.commas === 1 && p1.stops === 1, '발화 단위 계산', JSON.stringify(p1));
+ok(C.estimateNarrationMs('가습기, 물을 갈아요.') > C.estimateNarrationMs('가습기 물을 갈아요'), '쉼표·마침표 휴지', 'pause');
+
+const syncCuts = C.distributeCuts({ topic: '가습기 관리' }).cuts;
+const sync = C.syncCutsToNarration(syncCuts, [1600, 1600, 0, 300, 20000]);
+eq(sync.changes.length, 4, '오디오가 있는 컷만 싱크');
+eq(sync.cuts[0].duration, 1.9, '1.6초 음성 + 0.25 호흡 = 1.9초');
+eq(sync.cuts[1].duration, 1.9, '둘째 컷도 1.9초');
+eq(sync.cuts[2].duration, syncCuts[2].duration, '오디오 없는 컷은 유지');
+eq(sync.cuts[3].duration, 0.8, '짧은 음성은 최소 0.8초');
+eq(sync.cuts[4].duration, 15, '긴 음성은 최대 15초');
+eq(sync.cuts[0].narrationMs, 1600, '음성 길이 보존');
+eq(sync.totalMs, C.totalMs(sync.cuts), '총 길이 재계산');
+eq(C.timeline(sync.cuts)[1].start, 1900, '타임라인이 새 길이를 따른다');
+eq(C.timeline(sync.cuts)[2].start, 3800, '누적 시작도 재계산');
+eq(C.buildSrt(sync.cuts).split(/\n\n/)[1].split('\n')[1], '00:00:01,900 --> 00:00:03,800', 'SRT가 음성 길이에 맞춰진다');
+
+const reflowed = C.reflowSubtitles([
+  { id: 's1', cutIndex: 0, start: 0, end: 1200, text: '가습기 물' },
+  { id: 's2', cutIndex: 0, start: 1200, end: 3000, text: '매일 갈아야' },
+  { id: 's3', cutIndex: 1, start: 3200, end: 5000, text: '통도 씻어야' }
+], [
+  { headline: '가습기', duration: 2.4 }, { headline: '통', duration: 2.4 },
+  { headline: '식초', duration: 2 }, { headline: '증거', duration: 2 }, { headline: '행동', duration: 2 }
+]);
+eq(reflowed.length, 3, '자막 수 유지');
+eq(reflowed.map(s => s.text), ['가습기 물', '매일 갈아야', '통도 씻어야'], '자막 문구 유지');
+ok(reflowed.every(s => s.start >= 0 && s.end <= 8400 && s.end > s.start), '자막 시간이 전체 길이 안', JSON.stringify(reflowed.map(s => [s.start, s.end])));
+eq(reflowed[1].end, 2400, '첫 컷 자막이 새 컷 끝에 맞춰짐');
+eq(reflowed[2].start, 2400, '둘째 컷 자막이 새 시작에 맞춰짐');
+eq(C.reflowSubtitles([], sync.cuts), [], '자막 없으면 빈 배열');
+
+const noVisual = C.normalizeCuts([{ headline: '그냥 문장', visual: { id: 'money', label: '돈·절약', seed: 7, stat: { value: '3', unit: '주' } }, narrationMs: 1200 }, {}, {}, {}, {}]);
+eq(noVisual[0].visual.id, 'money', '저장된 비주얼 유지');
+eq(noVisual[0].narrationMs, 1200, '음성 길이 유지');
+eq(noVisual[1].visual, null, '비주얼 없는 컷은 null');
+
+/* ══════════════════════════════════════════════════════════ */
+group('자동 비주얼');
+ok(C.VISUALS.length >= 10, '비주얼 키워드 세트 10종 이상', C.VISUALS.length);
+ok(C.VISUALS.every(v => v.id && v.label && v.keys.length >= 5), '비주얼 정의');
+eq(C.detectVisualMotif('주방 가습기 물때 청소').id, 'clean', '청소 키워드');
+eq(C.detectVisualMotif('월급 300만원 저축하는 법').id, 'money', '돈 키워드');
+eq(C.detectVisualMotif('퇴근 후 홈트 운동 루틴').id, 'fitness', '운동 키워드');
+eq(C.detectVisualMotif('첫 문장에 해당하는 키워드가 없으면').id, 'spark', '기본 그래픽');
+const vCut = { id: 'cut-1', stage: 'proof', headline: '3주 만에 냄새가 사라졌어요', sub: '가습기 청소' };
+const v1 = C.visualFor(vCut, { topic: '가습기' });
+eq(v1.id, 'clean', '컷 문장으로 비주얼 종류');
+eq(v1.stat, { value: '3', unit: '주' }, '숫자·단위 추출');
+ok(typeof v1.seed === 'number' && v1.seed >= 0, '시드 숫자');
+eq(C.visualFor(vCut, { topic: '가습기' }).seed, v1.seed, '같은 문장은 같은 그림');
+const planned = C.planVisuals(C.distributeCuts({ topic: '원룸 청소 루틴' }).cuts, { topic: '원룸 청소 루틴' });
+eq(planned.length, 5, '5컷 모두');
+ok(planned.every(c => c.visual && c.visual.id && c.visual.source === 'auto'), '모든 컷에 자동 비주얼');
+ok(planned.some(c => c.visual.id === 'clean'), '주제 키워드가 그림에 반영');
+const savedVisual = C.serializeProject({ topic: 't', autoVisual: false, cuts: planned });
+eq(savedVisual.autoVisual, false, '자동 비주얼 토글 저장');
+eq(savedVisual.cuts[0].visual.id, planned[0].visual.id, '저장 후에도 비주얼');
+eq(C.serializeProject({}).autoVisual, true, '기본값은 자동 비주얼 켬');
+eq(C.emptyProject().autoVisual, true, '빈 프로젝트 기본값');
+
+const voiceTracks = C.buildTracks({
+  cuts: C.normalizeCuts(Array(5).fill({ headline: '문장', duration: 2 })),
+  music: 'none', voiceSpans: [{ start: 0, end: 1800, label: 'VOICE 1', cutIndex: 0 }, { start: 2000, end: 99999, cutIndex: 1 }]
+});
+eq(voiceTracks.a1.voices.length, 2, 'A1 성우 스팬 2개');
+eq(voiceTracks.voiceCount, 2, '성우 수');
+ok(voiceTracks.a1.voices.every(v => v.end > v.start && v.end <= voiceTracks.total), '스팬이 전체 길이 안');
+eq(voiceTracks.counts.A1, voiceTracks.a1.beats.length, 'A1 비트 수는 그대로');
+
+/* ══════════════════════════════════════════════════════════ */
+group('내레이션·비주얼 화면');
+const html2 = fs.readFileSync(path.join(HERE, 'index.html'), 'utf8');
+['btn-one-click', 'btn-auto-visual', 'btn-ai-image-all', 'btn-ai-voice', 'btn-free-voice', 'btn-auto-timing', 'f-auto-visual', 'export-voice', 'free-voice-note', 'one-click-status'].forEach(function (id) {
+  includes(html2, 'id="' + id + '"', '새 UI: ' + id);
+});
+includes(html2, '영상에 성우를 넣으려면', '무료 음성 녹음 불가 안내');
+const render2 = fs.readFileSync(path.join(HERE, 'render.js'), 'utf8');
+includes(render2, 'function drawAutoVisual', 'render: 자동 비주얼 그리기');
+includes(render2, 'VISUAL_PAINTERS', 'render: 그림 세트');
+includes(render2, "'none'", 'render: 음악 없는 오디오');
+includes(render2, 'opts.voices', 'render: 성우 트랙 합성');
+ok(render2.indexOf('drawAutoVisual') < render2.indexOf('function drawScene'), '비주얼 함수가 장면 그리기 앞에 정의');
+const app2 = fs.readFileSync(path.join(HERE, 'app.js'), 'utf8');
+['syncCutsToNarration', 'estimateNarrationMs', 'planVisuals', 'speechSynthesis', 'runOneClick', 'generateVoiceSync', 'generateAllImages', 'reflowSubtitles'].forEach(function (key) {
+  includes(app2, key, 'app: ' + key);
+});
+includes(fs.readFileSync(path.join(HERE, 'pro.js'), 'utf8'), 'speed: rate', 'pro: 발화 속도 전달');
+includes(fs.readFileSync(path.join(HERE, 'nle.js'), 'utf8'), 'tl-voice', 'nle: 성우 클립');
+const css2 = fs.readFileSync(path.join(HERE, 'styles.css'), 'utf8');
+['.cut-visual', '.one-click', '.free-voice-note', '.tl-voice'].forEach(function (sel) {
+  includes(css2, sel, 'css: ' + sel);
+});
+
 /* ══════════════════════════════════════════════════════════ */
 function finish() {
   if (pending > 0) { setTimeout(finish, 30); return; }

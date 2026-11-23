@@ -345,6 +345,16 @@
       image: typeof data.image === 'string' ? data.image : null,
       imageName: clean(data.imageName || '', 60),
       aiImage: !!data.aiImage,
+      visual: (data.visual && typeof data.visual === 'object' && data.visual.id)
+        ? {
+            id: clean(data.visual.id, 16), label: clean(data.visual.label || '', 24),
+            seed: Math.round(Number(data.visual.seed) || 0),
+            stat: (data.visual.stat && data.visual.stat.value)
+              ? { value: clean(data.visual.stat.value, 8), unit: clean(data.visual.stat.unit || '', 6) } : null,
+            source: data.visual.source === 'auto' ? 'auto' : 'manual'
+          }
+        : null,
+      narrationMs: Number(data.narrationMs) > 0 ? Math.round(clamp(data.narrationMs, 0, 60000)) : 0,
       voice: null
     };
   }
@@ -360,6 +370,7 @@
       handle: '',
       showProgress: true,
       showCaption: true,
+      autoVisual: true,
       music: 'lofi',
       resolution: '1080',
       fps: 30,
@@ -456,7 +467,9 @@
         highlight: found.highlight,
         image: found.image || null,
         imageName: found.imageName,
-        aiImage: !!found.aiImage
+        aiImage: !!found.aiImage,
+        visual: found.visual || null,
+        narrationMs: Number(found.narrationMs) || 0
       }, i));
     }
     return out;
@@ -812,7 +825,8 @@
         duration: cut.duration,
         image: cut.image,
         imageName: cut.imageName,
-        aiImage: cut.aiImage
+        aiImage: cut.aiImage,
+        visual: cut.visual || null
       }, i);
     });
   }
@@ -846,6 +860,7 @@
     ['showProgress', 'showCaption'].forEach(function (k) {
       if (project[k] !== undefined) base[k] = !!project[k];
     });
+    base.autoVisual = project.autoVisual !== false;
     base.fps = Number(project.fps) === 24 ? 24 : 30;
     base.grade = normalizeGrade(project.grade);
     base.splits = {};
@@ -872,7 +887,9 @@
         stage: c.stage, label: c.label,
         headline: c.headline, sub: c.sub, direction: c.direction, duration: c.duration,
         image: typeof c.image === 'string' && c.image.slice(0, 12) === 'data:image' && c.image.length < 700000 ? c.image : null,
-        imageName: c.imageName || '', aiImage: !!c.aiImage
+        imageName: c.imageName || '', aiImage: !!c.aiImage,
+        visual: c.visual ? { id: c.visual.id, label: c.visual.label, seed: c.visual.seed, stat: c.visual.stat || null, source: 'auto' } : null,
+        narrationMs: Number(c.narrationMs) > 0 ? Math.round(c.narrationMs) : 0
       };
     });
     return base;
@@ -1153,9 +1170,25 @@
     }
 
     var beats = (Array.isArray(p.beats) && p.beats.length) ? p.beats.slice(0, 400) : audioBeats(p);
+    var voiceSpans = [];
+    if (Array.isArray(p.voiceSpans)) {
+      p.voiceSpans.slice(0, 12).forEach(function (v, i) {
+        var start = Number(v && v.start), end = Number(v && v.end);
+        if (!isFinite(start) || !isFinite(end)) return;
+        start = Math.round(clamp(start, 0, Math.max(0, total)));
+        end = Math.round(clamp(end, start, Math.max(0, total)));
+        if (end <= start) return;
+        voiceSpans.push({
+          id: clean((v && v.id) || 'voice' + (i + 1), 24),
+          cutIndex: clamp(Number(v && v.cutIndex) || 0, 0, 4),
+          start: start, end: end, label: clean((v && v.label) || ('VOICE ' + (i + 1)), 18)
+        });
+      });
+    }
     var a1 = {
       style: p.music || 'lofi',
       beats: beats,
+      voices: voiceSpans,
       samples: waveform({ cuts: cuts, music: p.music, beats: beats }, opts.samples || 120),
       start: 0, end: total
     };
@@ -1180,6 +1213,7 @@
       cuts: cuts, timeline: tl, total: total,
       v1: v1, t1: t1, a1: a1, fx: fx,
       counts: { V1: v1.length, T1: t1.length, A1: beats.length, FX: fx.length },
+      voiceCount: voiceSpans.length,
       splitCount: v1.length - cuts.length
     };
   }
@@ -1293,6 +1327,176 @@
   }
 
   /* ==========================================================
+     8-b. 내레이션 타이밍 · 비주얼 자동 채우기
+     ------------------------------------------------------------
+     · 한국어 발화 속도(음절 + 쉼표/마침표 휴지)로 컷 길이를 계산한다.
+     · TTS 오디오의 실제 길이를 받으면 컷 길이·타임라인·자막이
+       그 길이에 1:1로 다시 붙는다(호흡 여유 250ms).
+     · 컷 문장의 키워드(숫자·돈·청소·음식·운동·비즈니스 …)를 읽어
+       어울리는 그래픽 비주얼 종류를 정한다. 그리기는 render.js.
+     ========================================================== */
+
+  var SPEECH = {
+    cps: 5.2,          // 한국어 또박또박 발화 기준 초당 음절
+    comma: 0.16,       // 쉼표 휴지(초)
+    period: 0.3,       // 마침표 휴지(초)
+    breathMs: 250,     // 컷 사이 호흡 여유
+    minMs: 400,
+    maxMs: 20000
+  };
+
+  var VISUALS = [
+    { id: 'money', label: '돈·절약', keys: ['돈', '원', '만원', '천원', '월급', '수익', '저축', '모으', '가격', '할인', '쿠폰', '카드', '결제', '비용', '지출', '부수입', '재테크', '투자', '절약', '벌었'] },
+    { id: 'time', label: '시간·루틴', keys: ['시간', '아침', '저녁', '매일', '루틴', '하루', '오늘', '내일', '30분', '10분', '20분', '한 달', '주 1회', '주말', '알람', '출근'] },
+    { id: 'clean', label: '청소·정리', keys: ['청소', '정리', '빨래', '씻', '때가', '물때', '냄새', '곰팡이', '세제', '식초', '욕실', '주방', '먼지', '가습기', '수납', '걸레', '비우'] },
+    { id: 'food', label: '음식·요리', keys: ['요리', '레시피', '라떼', '커피', '밥', '국물', '반찬', '식사', '맛', '재료', '냉장고', '간식', '단백질', '샐러드', '빵', '김치'] },
+    { id: 'fitness', label: '운동·몸', keys: ['운동', '근육', '헬스', '홈트', '달리기', '걷기', '스트레칭', '요가', '체중', '다이어트', '칼로리', '푸시업', '스쿼트'] },
+    { id: 'business', label: '일·비즈니스', keys: ['회사', '직장', '업무', '사업', '매출', '장사', '고객', '브랜드', '마케팅', '부업', '계약', '회의', '퇴근', '프리랜서', '사장'] },
+    { id: 'tech', label: '앱·디지털', keys: ['앱', '폰', '아이폰', '컴퓨터', '노트북', 'ai', '인터넷', '유튜브', '인스타', '블로그', '쇼츠', '설정', '클릭', '링크', '자동화'] },
+    { id: 'health', label: '건강·휴식', keys: ['건강', '잠', '수면', '피부', '눈', '목', '허리', '병원', '약', '영양', '비타민', '스트레스', '피로', '두통'] },
+    { id: 'home', label: '집·생활', keys: ['집', '원룸', '방', '가구', '인테리어', '월세', '이사', '베란다', '창문', '전기', '난방', '조명', '집안'] },
+    { id: 'study', label: '공부·아이디어', keys: ['공부', '시험', '책', '독서', '배우', '강의', '노트', '아이디어', '기획', '글쓰기', '메모', '정리법'] },
+    { id: 'travel', label: '여행·외출', keys: ['여행', '비행', '숙소', '호텔', '공항', '짐', '캐리어', '지도', '맛집', '당일치기', '드라이브', '캠핑'] },
+    { id: 'warning', label: '주의·손실', keys: ['하지마', '손해', '실수', '위험', '주의', '후회', '모르고', '그냥 두면', '안 하면', '망했'] }
+  ];
+
+  /** 문장을 발화 단위로 센다(한글 음절·숫자·영문·휴지). */
+  function speechProfile(text) {
+    var t = stripMarks(str(text));
+    var syllables = (t.match(/[가-힣]/g) || []).length;
+    var digits = (t.match(/[0-9]/g) || []).length;
+    var latin = (t.match(/[A-Za-z]/g) || []).length;
+    var commas = (t.match(/[,、·]/g) || []).length;
+    var stops = (t.match(/[.!?。！？]/g) || []).length;
+    return {
+      syllables: syllables,
+      digits: digits,
+      latin: latin,
+      commas: commas,
+      stops: stops,
+      pauses: round(commas * SPEECH.comma + stops * SPEECH.period, 2)
+    };
+  }
+
+  /**
+   * 한국어 발화 속도로 내레이션 길이(ms)를 어림한다.
+   * @param {string} text 내레이션 문장
+   * @param {number} speed 1=보통, 0.92=느리게, 1.08=빠르게
+   */
+  function estimateNarrationMs(text, speed) {
+    var p = speechProfile(text);
+    var units = p.syllables + p.digits * 1.2 + p.latin * 0.55;
+    if (!units) units = Math.max(1, stripMarks(str(text)).replace(/\s/g, '').length * 0.7);
+    var rate = Number(speed);
+    if (!(rate >= 0.5 && rate <= 2)) rate = 1;
+    var sec = (units / SPEECH.cps + p.pauses) / rate;
+    return Math.round(clamp(sec * 1000, SPEECH.minMs, SPEECH.maxMs));
+  }
+
+  /**
+   * 컷별 오디오 길이(ms)에 맞춰 컷 길이를 다시 정한다.
+   * 오디오 길이 + 호흡 여유 → 0.1초 단위 컷 길이.
+   * @returns {{cuts: Array, changes: Array, totalMs: number, breathMs: number}}
+   */
+  function syncCutsToNarration(cuts, audioMs, opts) {
+    opts = opts || {};
+    var breath = Number(opts.breathMs);
+    if (!isFinite(breath) || breath < 0) breath = SPEECH.breathMs;
+    var list = normalizeCuts(cuts || []);
+    var changes = [];
+    list.forEach(function (cut, i) {
+      var n = Number((audioMs || [])[i]);
+      if (!isFinite(n) || n <= 0) return;
+      var from = Math.round((cut.duration || 0) * 1000);
+      var dur = round(clamp((n + breath) / 1000, DURATIONS.min, DURATIONS.max), 1);
+      cut.duration = dur;
+      cut.narrationMs = Math.round(clamp(n, 0, 60000));
+      changes.push({ index: i, audioMs: Math.round(n), fromMs: from, toMs: Math.round(dur * 1000), synced: true });
+    });
+    return { cuts: list, changes: changes, totalMs: totalMs(list), breathMs: breath };
+  }
+
+  /**
+   * 컷 시간이 바뀌었을 때 기존 자막 줄을 각 컷 안에서 다시 나눈다.
+   * 자막 문구는 그대로 두고 시작·끝만 새 타임라인에 맞춘다.
+   */
+  function reflowSubtitles(subs, cuts) {
+    if (!Array.isArray(subs) || !subs.length) return [];
+    var list = normalizeCuts(cuts || []);
+    var tl = timeline(list);
+    var groups = {};
+    subs.forEach(function (s) {
+      var i = clamp(Number(s && s.cutIndex) || 0, 0, list.length - 1);
+      (groups[i] = groups[i] || []).push(s);
+    });
+    var out = [];
+    Object.keys(groups).forEach(function (key) {
+      var i = Number(key);
+      var seg = tl[i];
+      if (!seg) return;
+      var rows = groups[i].filter(function (s) { return s && s.text; });
+      var weights = rows.map(function (s) { return Math.max(2, stripMarks(s.text).length); });
+      var sum = weights.reduce(function (a, b) { return a + b; }, 0) || 1;
+      var cursor = seg.start;
+      rows.forEach(function (s, k) {
+        var end = k === rows.length - 1 ? seg.end : cursor + Math.round(seg.duration * (weights[k] / sum));
+        end = clamp(end, cursor + 120, seg.end);
+        out.push({
+          id: s.id, cutIndex: i, stage: s.stage || list[i].stage, kind: s.kind === 'sub' ? 'sub' : 'headline',
+          start: Math.round(cursor), end: Math.round(end), text: s.text
+        });
+        cursor = end;
+      });
+    });
+    out.sort(function (a, b) { return a.start - b.start; });
+    return out;
+  }
+
+  /** 문장 키워드 → 그래픽 비주얼 종류. */
+  function detectVisualMotif(text) {
+    var t = str(text).toLowerCase();
+    var best = { id: 'spark', label: '추상 그래픽', score: 0 };
+    VISUALS.forEach(function (v) {
+      var score = 0;
+      v.keys.forEach(function (k) {
+        if (t.indexOf(k) >= 0) score += k.length >= 2 ? 2 : 1;
+      });
+      if (score > best.score) best = { id: v.id, label: v.label, score: score };
+    });
+    return best;
+  }
+
+  /** 컷 하나의 자동 비주얼 정의(키워드·숫자·시드). */
+  function visualFor(cut, project) {
+    cut = cut || {};
+    var own = stripMarks(cut.headline || '') + ' ' + stripMarks(cut.sub || '');
+    var motif = detectVisualMotif(own);
+    // 컷 문장에 키워드가 없으면 주제에서 한 번만 빌려 온다.
+    if (motif.score === 0 && (project || {}).topic) motif = detectVisualMotif(project.topic);
+    var m = stripMarks(cut.headline || '').match(/(\d+(?:[.,]\d+)?)\s*(%|℃|도|시간|분|초|일|주|개월|달|년|개|번|원|만원|천원|배|kg|cm|명|위)?/);
+    var stat = null;
+    if (m) {
+      var unit = m[2] || '';
+      if (unit || m[1].length >= 2) stat = { value: m[1], unit: unit };
+    }
+    return {
+      id: motif.id,
+      label: motif.label,
+      seed: hash((cut.id || '') + '|' + (cut.stage || '') + '|' + stripMarks(cut.headline || '')),
+      stat: stat,
+      source: 'auto'
+    };
+  }
+
+  /** 5컷 모두에 자동 비주얼을 붙인 새 컷 배열. */
+  function planVisuals(cuts, project) {
+    return normalizeCuts(cuts || []).map(function (cut) {
+      cut.visual = visualFor(cut, project);
+      return cut;
+    });
+  }
+
+  /* ==========================================================
      9. 내보내기
      ========================================================== */
   return {
@@ -1357,6 +1561,15 @@
     audioBeats: audioBeats,
     waveform: waveform,
     buildTracks: buildTracks,
+    planVisuals: planVisuals,
+    visualFor: visualFor,
+    detectVisualMotif: detectVisualMotif,
+    estimateNarrationMs: estimateNarrationMs,
+    speechProfile: speechProfile,
+    syncCutsToNarration: syncCutsToNarration,
+    reflowSubtitles: reflowSubtitles,
+    VISUALS: VISUALS,
+    SPEECH: SPEECH,
     planSwarm: planSwarm,
     applySwarm: applySwarm,
     buildSwarmPrompt: buildSwarmPrompt,

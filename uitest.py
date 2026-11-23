@@ -12,8 +12,12 @@
   새로고침 유지, 다크 모드 대비, 개인정보 페이지 200.
 - preview-desktop.png · preview-mobile.png · preview-pro.png 저장.
 """
+import io
 import json
+import math
 import os
+import struct
+import wave
 import shutil
 import socket
 import sys
@@ -213,6 +217,23 @@ def shot(page, path, full=True):
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+
+def make_wav(seconds=1.6, rate=24000, hz=440):
+    """모의 TTS 응답: 실제로 해독되는 PCM WAV(길이 검증용)."""
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        frames = bytearray()
+        total = int(rate * seconds)
+        for i in range(total):
+            v = int(2400 * math.sin(2 * math.pi * hz * i / rate))
+            frames += struct.pack('<h', v)
+        w.writeframes(bytes(frames))
+    return buf.getvalue()
 
 
 def main():
@@ -654,6 +675,65 @@ def main():
         page.click('#tab-studio')
         page.wait_for_timeout(400)
 
+        # ────────────────────────────────────────────── F0
+        section('F0. 자동 비주얼 · 무료 타이밍 · 원클릭')
+        page.click('#tab-studio')
+        page.wait_for_timeout(500)
+        sig_visual = canvas_signature(page)
+        page.evaluate("() => { const el = document.querySelector('#f-auto-visual'); el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true })); }")
+        page.wait_for_timeout(500)
+        check('자동 비주얼 끄기', page.evaluate("() => window.ShortsApp.state.project.autoVisual") is False)
+        check('끄면 프리뷰에서 비주얼 카드 사라짐', canvas_signature(page) != sig_visual)
+        page.click('#tab-board')
+        page.wait_for_timeout(300)
+        check('끄면 컷 비주얼 칩 없음', len(page.query_selector_all('.cut-visual')) == 0)
+        page.click('#btn-auto-visual')
+        page.wait_for_timeout(600)
+        check('비주얼 채우기 버튼', page.evaluate("() => window.ShortsApp.state.project.autoVisual") is True)
+        expect_chips = page.evaluate("() => window.ShortsApp.state.project.cuts.filter(c => !c.image).length")
+        chips = page.eval_on_selector_all('.cut-visual', 'els => els.map(e => e.getAttribute("data-visual"))')
+        check('사진 없는 컷에 비주얼 칩', len(chips) == expect_chips,
+              f'{len(chips)} / expected {expect_chips}')
+        check('비주얼 종류가 컷마다 있음', all(chips) and len(chips) >= 3, ' / '.join(chips))
+        check('5컷 모두 비주얼 정의', page.evaluate("() => window.ShortsApp.state.project.cuts.every(c => c.visual && c.visual.id)"))
+
+        page.click('#tab-pro')
+        page.wait_for_timeout(400)
+        page.click('#btn-free-voice')
+        page.wait_for_timeout(500)
+        check('무료 미리듣기 안내', '미리듣기' in page.inner_text('#ai-voice-status'), page.inner_text('#ai-voice-status')[:80])
+        page.click('#btn-free-voice')
+        page.wait_for_timeout(350)
+        free_status = page.inner_text('#ai-voice-status')
+        check('무료 미리듣기 멈춤', ('멈췄' in free_status) or ('마쳤' in free_status), free_status[:80])
+        check('무료 음성 녹음 불가 표기', '녹음되지 않' in page.inner_text('#free-voice-note'), page.inner_text('#free-voice-note')[:80])
+
+        page.click('#tab-pro')
+        page.wait_for_timeout(400)
+        page.click('#btn-auto-timing')
+        page.wait_for_timeout(600)
+        expect_dur = page.evaluate("""() => {
+            const cuts = window.ShortsApp.state.project.cuts;
+            const est = cuts.map(c => ShortsCore.estimateNarrationMs(ShortsCore.narrationText(c), 1));
+            return ShortsCore.syncCutsToNarration(cuts, est).cuts.map(c => c.duration);
+        }""")
+        got_dur = page.evaluate("() => window.ShortsApp.state.project.cuts.map(c => c.duration)")
+        check('발화 속도로 컷 길이 계산', got_dur == expect_dur, f'{got_dur} vs {expect_dur}')
+        check('타이밍 안내 표시', '발화 속도' in page.inner_text('#ai-voice-status'), page.inner_text('#ai-voice-status')[:70])
+
+        page.click('#tab-board')
+        page.wait_for_timeout(300)
+        page.fill('#f-topic', '아침 루틴 3분')
+        page.fill('#f-script', '')
+        page.click('#btn-one-click')
+        page.wait_for_function("() => document.querySelector('#btn-one-click').getAttribute('data-running') !== 'true'", timeout=90000)
+        page.wait_for_timeout(800)
+        check('원클릭(무료) 완료 문구', '완성' in page.inner_text('#one-click-status'), page.inner_text('#one-click-status')[:90])
+        check('원클릭 후 5컷', len(page.query_selector_all('.cut-card')) == 5)
+        check('원클릭 후 비주얼 5컷', len(page.query_selector_all('.cut-visual')) == 5)
+        check('원클릭 후 발화 타이밍 반영', '발화 타이밍' in page.inner_text('#one-click-status'), page.inner_text('#one-click-status')[:90])
+        check('원클릭 상태 다시 실행 가능', page.get_attribute('#btn-one-click', 'data-running') != 'true')
+
         # ────────────────────────────────────────────── F
         section('F. Pro 모달 · 연결/해제')
         page.click('#btn-pro-badge')
@@ -758,6 +838,102 @@ def main():
         page.click('#tab-board')
         page.wait_for_timeout(400)
         check('보드에서 AI 이미지 확인', page.is_visible('.cut-card:nth-child(1) .cut-thumb'))
+        # TTS 싱크: 모의 WAV(1.6초) 5개 → 컷 1.9초(1.6+0.25 호흡)로 재정렬
+        def make_tts_handler(store):
+            def handler(route):
+                store.append(route.request.post_data or '')
+                route.fulfill(status=200, content_type='audio/wav', body=make_wav(1.6))
+            return handler
+        tts_bodies = []
+        page.route('https://api.openai.com/v1/audio/speech', make_tts_handler(tts_bodies))
+        page.click('#tab-pro')
+        page.wait_for_timeout(500)
+        page.select_option('#ai-voice-speed', '1.08')
+        page.click('#btn-ai-voice')
+        page.wait_for_function("() => (window.ShortsApp.state.voices || []).length === 5", timeout=90000)
+        page.wait_for_timeout(700)
+        check('TTS 요청 5건', len(tts_bodies) == 5, str(len(tts_bodies)))
+        speed_sent = json.loads(tts_bodies[0]).get('speed') if tts_bodies else None
+        check('TTS 발화 속도 전달', speed_sent == 1.08, str(speed_sent))
+        check('성우 5컷 저장', page.evaluate("() => window.ShortsApp.state.voices.length") == 5)
+        durs = page.evaluate("() => window.ShortsApp.state.project.cuts.map(c => c.duration)")
+        check('컷 길이 = 음성 1.6초 + 호흡', durs == [1.9, 1.9, 1.9, 1.9, 1.9], str(durs))
+        check('내레이션 길이 기록', page.evaluate("() => window.ShortsApp.state.project.cuts.every(c => c.narrationMs === 1600)"))
+        check('총 9.5초', '9.5초' in page.inner_text('#export-len'), page.inner_text('#export-len'))
+        check('자막이 음성 길이에 맞춰짐', page.evaluate("""() => {
+            const S = window.ShortsApp.state, tl = ShortsCore.timeline(S.project.cuts);
+            const subs = S.project.subtitles.length ? S.project.subtitles : ShortsCore.subtitlesFromCuts(S.project.cuts, 17);
+            return subs.length >= 5 && subs.every(s => {
+                const seg = tl[s.cutIndex];
+                return seg && s.start >= seg.start && s.end <= seg.end && s.end > s.start;
+            });
+        }"""))
+        check('성우 목록 5개', len(page.query_selector_all('#voice-list .voice-item')) == 5)
+        check('성우 항목에 음성 길이', '1.6초 음성' in page.inner_text('#voice-list'), page.inner_text('#voice-list')[:80])
+        check('내보내기 성우 표기', '성우 5컷' in page.inner_text('#export-voice'), page.inner_text('#export-voice'))
+        check('음성 싱크 안내', '맞췄습니다' in page.inner_text('#ai-voice-status'), page.inner_text('#ai-voice-status')[:90])
+
+        page.click('#tab-studio')
+        page.wait_for_timeout(600)
+        check('A1 성우 클립 5개', len(page.query_selector_all('#tl-a1-marks .tl-voice')) == 5,
+              str(len(page.query_selector_all('#tl-a1-marks .tl-voice'))))
+        page.select_option('#x-music', 'none')
+        page.wait_for_timeout(300)
+        page.click('#btn-play')
+        page.wait_for_timeout(600)
+        check('미리보기에 성우 오디오 연결', page.evaluate("() => !!window.ShortsApp.state.previewAudio"))
+        page.click('#btn-play')
+        page.wait_for_timeout(250)
+
+        with page.expect_download() as dl_tts:
+            page.click('#btn-srt')
+        srt_sync = (tmp / 'sync.srt')
+        dl_tts.value.save_as(str(srt_sync))
+        srt_text = srt_sync.read_text(encoding='utf-8')
+        check('.srt가 음성 길이로 재정렬', '00:00:01,900 --> 00:00:03,800' in srt_text, srt_text[:120].replace('\\n', '|'))
+
+        page.evaluate("() => { const r = document.querySelector('#x-resolution'); r.value = '540'; r.dispatchEvent(new Event('change', { bubbles: true })); }")
+        page.wait_for_timeout(500)
+        page.click('#btn-export')
+        page.wait_for_selector('#export-result:not([hidden])', timeout=120000)
+        meta_sync = page.inner_text('#result-meta')
+        check('내레이션 포함 메타', '내레이션 5컷' in meta_sync, meta_sync)
+        check('9.5초 영상', '9.5초' in meta_sync, meta_sync)
+        info_sync = page.evaluate("() => window.ShortsApp.state.exportInfo || {}")
+        check('성우 트랙 포함(opus)', 'opus' in (info_sync.get('type') or ''), str(info_sync.get('type')))
+        with page.expect_download() as dl_sync:
+            page.click('#btn-download')
+        sync_webm = tmp / 'sync.webm'
+        dl_sync.value.save_as(str(sync_webm))
+        sync_bytes = sync_webm.read_bytes()
+        check('.webm에 Opus 트랙', b'A_OPUS' in sync_bytes, f'{len(sync_bytes)} bytes')
+        audio_dur = page.evaluate("""async () => {
+            const S = window.ShortsApp.state;
+            try {
+                const ac = new (window.AudioContext || window.webkitAudioContext)();
+                const buf = await ac.decodeAudioData(await S.exportBlob.arrayBuffer());
+                await ac.close();
+                return buf.duration;
+            } catch (e) { return -1; }
+        }""")
+        check('녹음된 오디오가 9초 이상', float(audio_dur) >= 8.0, str(audio_dur))
+        page.evaluate("() => document.querySelectorAll('.toast').forEach(t => t.remove())")
+        shot(page, HERE / 'preview-sync.png')
+        check('preview-sync.png 저장', (HERE / 'preview-sync.png').exists())
+        # Pro 원클릭: AI 대본 → AI 이미지 5컷 → 성우 5컷 → 싱크까지 한 번에
+        page.click('#tab-board')
+        page.wait_for_timeout(300)
+        page.click('#btn-one-click')
+        page.wait_for_function("() => document.querySelector('#btn-one-click').getAttribute('data-running') !== 'true'", timeout=120000)
+        page.wait_for_timeout(800)
+        one_status = page.inner_text('#one-click-status')
+        check('Pro 원클릭 완료', '완성했습니다' in one_status, one_status[:120])
+        check('Pro 원클릭 대본 단계', 'AI 대본' in one_status, one_status[:120])
+        check('Pro 원클릭 이미지 단계', 'AI 이미지 5컷' in one_status, one_status[:120])
+        check('Pro 원클릭 성우 싱크 단계', '성우 5컷 싱크' in one_status, one_status[:120])
+        check('Pro 원클릭 후 5컷 AI 이미지', page.evaluate("() => window.ShortsApp.state.project.cuts.every(c => c.aiImage)"))
+        check('Pro 원클릭 후 성우 5컷', page.evaluate("() => window.ShortsApp.state.voices.length") == 5)
+        check('Pro 원클릭 후 컷 길이 싱크', page.evaluate("() => window.ShortsApp.state.project.cuts.every(c => c.duration === 1.9)"))
         page.click('#tab-pro')
         page.wait_for_timeout(400)
 
