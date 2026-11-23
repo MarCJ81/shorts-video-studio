@@ -136,7 +136,7 @@ python3 -m http.server 8080
 ## 6. 테스트
 
 ```bash
-node test.js          # 490여 개 단위·파일 위생·보안·디자인 토큰·NLE·내레이션 싱크 검사
+node test.js          # 496개 단위·파일 위생·보안·디자인 토큰·NLE·내레이션 싱크 검사
 python3 uitest.py     # 헤드리스 Chrome: 실제 .webm 녹화·다운로드까지 검증
 ```
 
