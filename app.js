@@ -484,7 +484,11 @@
     $('#fact-size').textContent = sizeText;
     $('#export-len').textContent = stats.totalSec.toFixed(1) + '초';
     $('#export-size').textContent = '약 ' + sizeText;
-    $('#export-format').textContent = '.' + (R.pickMime(true).indexOf('mp4') >= 0 ? 'mp4' : 'webm') + ' · ' + res.name;
+    var fmtSel = $('#x-format');
+    var wantMp4 = !fmtSel || fmtSel.value !== 'webm';
+    $('#export-format').textContent = wantMp4 ? '.mp4 · H.264 · ' + res.name : '.webm · VP9 · ' + res.name;
+    var expBtn = $('#btn-export');
+    if (expBtn && !state.recording) expBtn.textContent = wantMp4 ? '영상 .mp4 만들기' : '영상 .webm 만들기';
     $('#export-warn').hidden = !stats.overPlatformMax;
     $('#time-total').textContent = C.formatClock(C.totalMs(cuts));
     $('#stage-meta').textContent = cuts.length + '컷 · ' + res.w + '×' + res.h;
@@ -705,7 +709,9 @@
     box.hidden = false;
     $('#progress-bar').style.width = Math.round(pct * 100) + '%';
     var left = Math.max(0, Math.ceil((total - ms) / 1000));
-    $('#progress-text').textContent = '녹화 중… ' + Math.round(pct * 100) + '% · 남은 시간 약 ' + left + '초';
+    var rendering = $('#x-format') && $('#x-format').value !== 'webm';
+    $('#progress-text').textContent = (rendering ? 'MP4로 그리는 중… ' : '녹화 중… ') + Math.round(pct * 100) + '%' +
+      (rendering ? '' : ' · 남은 시간 약 ' + left + '초');
   }
 
   function doExport() {
@@ -729,15 +735,45 @@
     }) : [];
     var voiceCount = voices.length;
 
-    R.recordVideo({
-      cuts: activeCuts(),
-      project: state.project,
-      width: res.w, height: res.h, fps: state.project.fps,
-      images: state.images,
-      voices: voices,
-      signal: state.cancelFlag,
-      onProgress: showExportProgress
-    }).then(function (out) {
+    var wantMp4 = !$('#x-format') || $('#x-format').value !== 'webm';
+    var job;
+    if (wantMp4) {
+      $('#progress-text').textContent = 'MP4 렌더를 준비하는 중…';
+      job = R.renderMp4({
+        cuts: activeCuts(),
+        project: state.project,
+        width: res.w, height: res.h, fps: state.project.fps,
+        images: state.images,
+        voices: voices,
+        signal: state.cancelFlag,
+        onProgress: showExportProgress
+      }).catch(function (err) {
+        // MP4 를 만들 수 없는 브라우저(또는 인코더 실패) → 기존 녹화로 계속
+        if (state.cancelFlag && state.cancelFlag.cancelled) throw err;
+        toast('이 브라우저에서는 MP4를 만들지 못해 WebM으로 이어갑니다. (' + ((err && err.message) || '인코더 없음') + ')');
+        $('#progress-text').textContent = 'WebM 녹화로 전환합니다…';
+        return R.recordVideo({
+          cuts: activeCuts(),
+          project: state.project,
+          width: res.w, height: res.h, fps: state.project.fps,
+          images: state.images,
+          voices: voices,
+          signal: state.cancelFlag,
+          onProgress: showExportProgress
+        });
+      });
+    } else {
+      job = R.recordVideo({
+        cuts: activeCuts(),
+        project: state.project,
+        width: res.w, height: res.h, fps: state.project.fps,
+        images: state.images,
+        voices: voices,
+        signal: state.cancelFlag,
+        onProgress: showExportProgress
+      });
+    }
+    job.then(function (out) {
       state.exportBlob = out.blob;
       state.exportName = baseName() + '-9x16.' + out.ext;
       state.exportInfo = {
@@ -767,6 +803,79 @@
       state.cancelFlag = null;
       $('#btn-export').disabled = !activeCuts().length;
       $('#btn-cancel-export').hidden = true;
+    });
+  }
+
+  /* ── 오디오 파형 (wavesurfer.js · BSD-3) ─────────────────
+     배경음과 내레이션을 OfflineAudioContext 로 한 번에 계산해
+     진짜 소리를 그린다(가짜 파형 아님). 계산·재생 모두 기기 안에서. */
+  var WAVE = { instance: null, url: '', busy: false };
+
+  function loadWavesurfer() {
+    if (window.WaveSurfer) return Promise.resolve(window.WaveSurfer);
+    return new Promise(function (resolve, reject) {
+      var el = document.createElement('script');
+      el.src = 'assets/vendor/wavesurfer.min.js';
+      el.async = true;
+      el.onload = function () { window.WaveSurfer ? resolve(window.WaveSurfer) : reject(new Error('WaveSurfer 없음')); };
+      el.onerror = function () { reject(new Error('wavesurfer 로드 실패')); };
+      document.head.appendChild(el);
+    });
+  }
+
+  function waveState(text) {
+    var el = $('#waveState');
+    if (el) el.textContent = text;
+  }
+
+  function buildWaveform() {
+    if (WAVE.busy) return;
+    var cuts = activeCuts();
+    if (!cuts.length) { toast('스토리보드가 비어 있습니다.'); return; }
+    var box = $('#waveform');
+    if (!box) return;
+    WAVE.busy = true;
+    waveState('소리를 계산하는 중… (영상 길이만큼 한 번에 계산합니다)');
+    var voices = state.useVoice ? state.voices.filter(function (v) { return v.buffer; })
+      .map(function (v) { return { buffer: v.buffer, startMs: v.startMs }; }) : [];
+    var total = C.totalMs(cuts);
+    R.renderMixOffline({
+      totalMs: total,
+      music: state.project.music,
+      voices: voices,
+      timelines: C.timeline(cuts)
+    }).then(function (buffer) {
+      var wav = R.encodeWav(buffer);
+      var blob = new Blob([wav], { type: 'audio/wav' });
+      return loadWavesurfer().then(function (WaveSurfer) {
+        if (WAVE.instance) { try { WAVE.instance.destroy(); } catch (e) { /* noop */ } WAVE.instance = null; }
+        if (WAVE.url) { setTimeout(function () { try { URL.revokeObjectURL(WAVE.url); } catch (e) { /* noop */ } }, 2000); }
+        WAVE.url = URL.createObjectURL(blob);
+        box.innerHTML = '';
+        WAVE.instance = WaveSurfer.create({
+          container: box,
+          height: 56,
+          waveColor: 'rgba(148, 163, 184, .55)',
+          progressColor: '#34E0C8',
+          cursorColor: '#8B5CF6',
+          barWidth: 2,
+          barGap: 1,
+          barRadius: 2,
+          normalize: true,
+          url: WAVE.url
+        });
+        WAVE.instance.on('ready', function () {
+          waveState('파형 준비 완료 · ' + (total / 1000).toFixed(1) + '초 · ' + (wav.length / 1024).toFixed(0) + 'KB · 클릭해서 들어 보세요');
+        });
+        WAVE.instance.on('error', function () {
+          waveState('파형을 그리지 못했습니다. 형식 선택을 바꿔 다시 시도해 보세요.');
+        });
+        return true;
+      });
+    }).catch(function (err) {
+      waveState('파형을 만들지 못했습니다: ' + ((err && err.message) || err));
+    }).then(function () {
+      WAVE.busy = false;
     });
   }
 
@@ -1019,6 +1128,75 @@
   }
 
   /** AI 대본 1회 요청 → 5컷 배열(초안에도 저장). */
+  /* ── 무료 AI 대본 맛보기 (free-ai.js) ────────────────────
+     Worker 는 900토큰까지라 5컷 JSON 은 충분히 들어간다.
+     결과는 Pro 대본과 같은 병합 경로(C.mergeAiCuts)로 넣어
+     비주얼·자막·타이밍 로직이 그대로 이어진다. */
+  var FREE = window.FreeAI || null;
+
+  function setFreeStatus(text, tone) {
+    var el = $('#one-click-status');
+    if (el) {
+      el.textContent = text;
+      el.setAttribute('data-tone', tone || '');
+    }
+  }
+
+  function runFreeCuts() {
+    if (!FREE) { toast('무료 체험 모듈을 불러오지 못했습니다. 새로고침해 주세요.'); return; }
+    if (state.oneClickRunning) return;
+    var topic = ($('#f-topic').value || '').trim() || ($('#ai-topic').value || '').trim();
+    if (!topic) { toast('주제를 먼저 넣어 주세요.', 'error'); if ($('#f-topic')) $('#f-topic').focus(); return; }
+    var btn = $('#btn-free-cuts');
+    var host = $('#freeUpgrade');
+    if (host) host.innerHTML = '';
+    if (btn) { btn.disabled = true; btn.textContent = '무료 AI가 쓰는 중…'; }
+    setFreeStatus('무료 체험으로 5컷 대본을 쓰는 중… (보통 3~10초)', 'busy');
+    var tone = $('#ai-tone-select') ? $('#ai-tone-select').value : state.project.tone;
+    var prompt = C.buildScriptPrompt({
+      topic: topic, tone: tone, platform: state.project.platform,
+      extra: ($('#ai-extra') ? $('#ai-extra').value : '') + '\n[무료 체험] 출력은 설명 없이 JSON 배열만. [{"stage":"hook","headline":"...","sub":"..."}] 5개.'
+    });
+    FREE.generate({
+      prompt: prompt,
+      system: '한국어 숏폼 대본 작가다. 5컷 구조를 지키고 JSON 배열만 출력한다.',
+      options: { temperature: 0.8, maxTokens: 900, json: true }
+    }).then(function (res) {
+      if (btn) { btn.disabled = false; btn.textContent = '무료 AI 대본 맛보기'; }
+      if (!res.ok) {
+        if (host) {
+          FREE.mountUpgrade(host, res, {
+            onConnectKey: function () { toast('Pro 연결에서 키를 넣으면 이어서 쓸 수 있습니다.'); },
+            onBridge: function () { refreshBridgePrompt(); toast('아래 AI 브리지 프롬프트를 복사해 이어서 쓰세요.'); }
+          });
+        }
+        setFreeStatus(res.message, 'error');
+        toast(res.message, 'error');
+        return;
+      }
+      var cuts = C.parseAiCuts(res.text);
+      if (!cuts.length) {
+        setFreeStatus('응답을 5컷으로 읽지 못했습니다. 다시 시도해 주세요.', 'error');
+        toast('응답을 5컷으로 읽지 못했습니다.', 'error');
+        return;
+      }
+      if ($('#f-topic')) $('#f-topic').value = topic;
+      state.project.topic = topic;
+      state.project.cuts = C.planVisuals(C.mergeAiCuts(activeCuts(), cuts), state.project);
+      state.project.splits = {};
+      state.project.subtitles = [];
+      invalidateVoices();
+      renderStoryboard();
+      refreshPreview(false);
+      refreshBridgePrompt();
+      updateAiCutSelect();
+      queueSave();
+      var left = (res.remaining === undefined || res.remaining === null) ? '' : ' · 남은 맛보기 ' + res.remaining + (res.limit ? '/' + res.limit : '') + '회';
+      setFreeStatus('무료 체험 대본 ' + cuts.length + '컷을 넣었습니다.' + left, 'ok');
+      toast('무료 체험 대본 ' + cuts.length + '컷을 스토리보드에 넣었습니다.');
+    });
+  }
+
   function requestAiCuts(opts) {
     opts = opts || {};
     var topic = opts.topic || $('#ai-topic').value.trim() || state.project.topic || $('#f-topic').value.trim();
@@ -1757,6 +1935,20 @@
       updateStudioFacts();
       queueSave();
     });
+    if (FREE) {
+      FREE.configure({ app: 'shorts-video-maker' });
+      var fb = $('#freeBadge');
+      if (fb) FREE.mountBadge(fb);
+    }
+    var freeCutsBtn = $('#btn-free-cuts');
+    if (freeCutsBtn) freeCutsBtn.addEventListener('click', runFreeCuts);
+    var fmtPicker = $('#x-format');
+    if (fmtPicker) fmtPicker.addEventListener('change', function () {
+      updateStudioFacts();
+      waveState('형식이 바뀌었습니다. 파형은 소리 계산 결과라 그대로 쓸 수 있습니다.');
+    });
+    var waveBtn = $('#btn-wave');
+    if (waveBtn) waveBtn.addEventListener('click', buildWaveform);
     $('#x-transition').addEventListener('change', function () {
       state.project.transition = $('#x-transition').value;
       $('#f-transition').value = state.project.transition;

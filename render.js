@@ -1349,6 +1349,331 @@
     return out.buffer;
   }
 
+  /* ══════════════════════════════════════════════════════
+     오프라인 오디오 믹스 + 파형 + MP4 렌더
+     ------------------------------------------------------
+     실시간 녹화는 30초 영상에 30초를 기다려야 하고, 결과물이
+     사실상 .webm 이라 일부 앱이 업로드를 거부한다. 여기서는
+        ① 배경음+내레이션을 OfflineAudioContext 로 한 번에 계산해
+           파형(wavesurfer)에 진짜 소리를 보여 주고,
+        ② 같은 소리를 WebCodecs(mediabunny)로 MP4 에 먹싱한다.
+     WebCodecs 가 없는 브라우저는 기존 MediaRecorder(.webm)로 돌아간다. */
+  var MP4 = {
+    version: 'mediabunny-1.66.2',
+    localPath: 'assets/vendor/mediabunny.min.mjs',
+    module: null
+  };
+
+  function loadMediabunny() {
+    if (MP4.module) return Promise.resolve(MP4.module);
+    return import('./' + MP4.localPath).then(function (mod) {
+      MP4.module = mod;
+      return mod;
+    });
+  }
+
+  function musicProfile(style) {
+    var chords = {
+      lofi: [[196, 246.94, 293.66], [174.61, 220, 261.63], [164.81, 196, 246.94], [146.83, 185, 220]],
+      calm: [[261.63, 329.63, 392], [220, 261.63, 329.63], [174.61, 220, 261.63], [196, 246.94, 293.66]],
+      upbeat: [[261.63, 329.63, 392], [293.66, 369.99, 440], [220, 277.18, 329.63], [246.94, 311.13, 369.99]]
+    };
+    var bpm = style === 'upbeat' ? 118 : (style === 'lofi' ? 74 : 58);
+    return {
+      chords: chords[style] || chords.lofi,
+      beat: 60 / bpm,
+      chordLen: (60 / bpm) * (style === 'calm' ? 4 : 2)
+    };
+  }
+
+  /** 같은 음악을 오프라인에서 통째로 예약한다(실시간 타이머 없이). */
+  function scheduleMusic(ac, master, style, totalSec) {
+    var prof = musicProfile(style);
+    var noise = ac.createBuffer(1, Math.max(1, Math.floor(ac.sampleRate * 2)), ac.sampleRate);
+    var nd = noise.getChannelData(0);
+    for (var i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+
+    function tone(freq, at, dur, type, gain, filterFreq) {
+      var osc = ac.createOscillator();
+      var g = ac.createGain();
+      osc.type = type || 'triangle';
+      osc.frequency.value = freq;
+      var node = g;
+      if (filterFreq) {
+        var f = ac.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = filterFreq;
+        g.connect(f);
+        node = f;
+      }
+      osc.connect(g);
+      node.connect(master);
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.001, gain), at + Math.min(0.35, dur * 0.3));
+      g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      osc.start(at);
+      osc.stop(at + dur + 0.05);
+    }
+    function kick(at, gain) {
+      var osc = ac.createOscillator();
+      var g = ac.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(130, at);
+      osc.frequency.exponentialRampToValueAtTime(44, at + 0.16);
+      g.gain.setValueAtTime(gain || 0.55, at);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+      osc.connect(g);
+      g.connect(master);
+      osc.start(at);
+      osc.stop(at + 0.26);
+    }
+    function hat(at, gain) {
+      var src = ac.createBufferSource();
+      src.buffer = noise;
+      var hp = ac.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 7200;
+      var g = ac.createGain();
+      g.gain.setValueAtTime(gain || 0.05, at);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.06);
+      src.connect(hp); hp.connect(g); g.connect(master);
+      src.start(at); src.stop(at + 0.08);
+    }
+    function whoosh(at) {
+      var src = ac.createBufferSource();
+      src.buffer = noise;
+      var bp = ac.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.Q.value = 1.2;
+      bp.frequency.setValueAtTime(420, at);
+      bp.frequency.exponentialRampToValueAtTime(2600, at + 0.42);
+      var g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.12, at + 0.12);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.46);
+      src.connect(bp); bp.connect(g); g.connect(master);
+      src.start(at); src.stop(at + 0.5);
+    }
+
+    var chord = prof.chords;
+    var at = 0;
+    var idx = 0;
+    while (at < totalSec) {
+      var set = chord[idx % chord.length];
+      for (var k = 0; k < set.length; k++) {
+        if (style === 'upbeat') tone(set[k] * 2, at + k * 0.02, prof.chordLen * 0.55, 'triangle', 0.05, 4200);
+        else if (style === 'calm') {
+          tone(set[k], at, prof.chordLen * 0.98, 'sine', 0.075, 1800);
+          tone(set[k] * 2, at + 0.1, prof.chordLen * 0.6, 'sine', 0.03, 2400);
+        } else tone(set[k], at, prof.chordLen * 0.92, 'triangle', 0.085, 1200);
+      }
+      idx++;
+      at += prof.chordLen;
+    }
+    var beat = prof.beat;
+    var n = 0;
+    while (n * beat < totalSec) {
+      var t = n * beat;
+      var b = n % 4;
+      if (style === 'upbeat') {
+        if (b === 0 || b === 2) kick(t, 0.5);
+        hat(t, b % 2 ? 0.035 : 0.055);
+        if (b === 2) hat(t, 0.05);
+        if (b === 1 || b === 3) tone(chord[idx % chord.length][b % 3] * 4, t + 0.02, 0.22, 'square', 0.022, 5200);
+      } else if (style === 'calm') {
+        if (b === 0) kick(t, 0.22);
+      } else if (b === 0 || b === 2) kick(t, 0.3);
+      n++;
+    }
+    return { whoosh: whoosh };
+  }
+
+  /**
+   * 배경음 + 내레이션 → AudioBuffer (영상 길이와 정확히 같음)
+   * @param {{totalMs:number, music:string, voices:Array, timelines:Array, onCutMs?:number}} opts
+   */
+  function renderMixOffline(opts) {
+    opts = opts || {};
+    var Ctx = root.OfflineAudioContext || root.webkitOfflineAudioContext;
+    if (!Ctx) return Promise.reject(new Error('이 브라우저는 오프라인 오디오를 지원하지 않습니다.'));
+    var totalMs = Math.max(400, Math.round(opts.totalMs || 0));
+    var sr = 44100;
+    var frames = Math.ceil((totalMs / 1000) * sr);
+    var ac = new Ctx(2, frames, sr);
+    var master = ac.createGain();
+    master.connect(ac.destination);
+    var totalSec = totalMs / 1000;
+    master.gain.setValueAtTime(0.0001, 0);
+    master.gain.linearRampToValueAtTime(0.85, Math.min(0.9, totalSec * 0.3));
+    master.gain.setValueAtTime(0.85, Math.max(0.1, totalSec - 1.3));
+    master.gain.linearRampToValueAtTime(0.0001, totalSec);
+
+    var style = opts.music || (opts.project && opts.project.music) || 'none';
+    var voices = (opts.voices || []).filter(function (v) { return v && v.buffer; });
+    voices.forEach(function (v) {
+      var src = ac.createBufferSource();
+      var g = ac.createGain();
+      src.buffer = v.buffer;
+      g.gain.value = v.gain === undefined ? 1 : v.gain;
+      src.connect(g);
+      g.connect(master);
+      src.start(Math.max(0, (v.startMs || 0) / 1000));
+    });
+
+    if (style !== 'none') {
+      var music = scheduleMusic(ac, master, style, totalSec);
+      (opts.timelines || []).forEach(function (seg) {
+        if (seg && seg.start > 0) music.whoosh(seg.start / 1000);
+      });
+    }
+    return ac.startRendering();
+  }
+
+  /** AudioBuffer → WAV(PCM16) — wavesurfer·다운로드용 */
+  function encodeWav(buffer) {
+    var channels = Math.min(2, buffer.numberOfChannels || 1);
+    var len = buffer.length;
+    var bytes = 44 + len * channels * 2;
+    var out = new DataView(new ArrayBuffer(bytes));
+    function str(off, s) { for (var i = 0; i < s.length; i++) out.setUint8(off + i, s.charCodeAt(i)); }
+    str(0, 'RIFF');
+    out.setUint32(4, bytes - 8, true);
+    str(8, 'WAVE');
+    str(12, 'fmt ');
+    out.setUint32(16, 16, true);
+    out.setUint16(20, 1, true);
+    out.setUint16(22, channels, true);
+    out.setUint32(24, buffer.sampleRate, true);
+    out.setUint32(28, buffer.sampleRate * channels * 2, true);
+    out.setUint16(32, channels * 2, true);
+    out.setUint16(34, 16, true);
+    str(36, 'data');
+    out.setUint32(40, len * channels * 2, true);
+    var data = [];
+    for (var c = 0; c < channels; c++) data.push(buffer.getChannelData(c));
+    var off = 44;
+    for (var i = 0; i < len; i++) {
+      for (var ch = 0; ch < channels; ch++) {
+        var v = Math.max(-1, Math.min(1, data[ch][i]));
+        out.setInt16(off, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+        off += 2;
+      }
+    }
+    return new Uint8Array(out.buffer);
+  }
+
+  /** 이 브라우저가 MP4(H.264) + 오디오 인코딩을 할 수 있는지 */
+  function mp4Capability() {
+    if (!root.VideoEncoder || !root.AudioEncoder) return Promise.resolve({ ok: false, reason: 'WebCodecs 없음' });
+    return loadMediabunny().then(function (mb) {
+      return mb.canEncodeVideo('avc').then(function (avc) {
+        if (!avc) return { ok: false, reason: 'H.264 인코더 없음' };
+        return mb.canEncodeAudio('aac').then(function (aac) {
+          return { ok: true, video: 'avc', audio: aac ? 'aac' : 'opus' };
+        });
+      });
+    }).catch(function (e) {
+      return { ok: false, reason: (e && e.message) || 'mediabunny 로드 실패' };
+    });
+  }
+
+  /**
+   * MP4 렌더(실시간 아님) — 프레임을 하나씩 그려 인코더에 넣는다.
+   * 오디오는 renderMixOffline 결과를 그대로 먹싱해 TTS 싱크를 유지한다.
+   */
+  function renderMp4(opts) {
+    var cuts = opts.cuts || [];
+    if (!cuts.length) return Promise.reject(new Error('스토리보드가 비어 있습니다.'));
+    var project = opts.project || {};
+    var theme = C.themeById(opts.theme || project.theme);
+    var width = opts.width || 1080, height = opts.height || 1920;
+    var fps = Math.max(24, Math.min(30, opts.fps || 30));
+    var total = C.totalMs(cuts);
+    var canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    var ctx = canvas.getContext('2d', { alpha: false });
+    var scaleX = width / W, scaleY = height / H;
+    var voices = (opts.voices || []).filter(function (v) { return v && v.buffer; });
+    var wantsAudio = (project.music && project.music !== 'none') || voices.length;
+    var t0 = performance.now();
+
+    return mp4Capability().then(function (cap) {
+      if (!cap.ok) throw new Error(cap.reason || 'MP4를 만들 수 없습니다.');
+      return loadMediabunny().then(function (mb) {
+        var output = new mb.Output({ format: new mb.Mp4OutputFormat(), target: new mb.BufferTarget() });
+        var videoSource = new mb.CanvasSource(canvas, {
+          codec: cap.video,
+          bitrate: width >= 1000 ? 6000000 : 3000000
+        });
+        output.addVideoTrack(videoSource, { frameRate: fps });
+
+        var audioPromise = wantsAudio
+          ? renderMixOffline({ totalMs: total, music: project.music, voices: voices, timelines: C.timeline(cuts) })
+          : Promise.resolve(null);
+
+        return audioPromise.then(function (audioBuffer) {
+          var audioSource = null;
+          if (audioBuffer && cap.audio) {
+            try {
+              audioSource = new mb.AudioBufferSource({ codec: cap.audio, bitrate: 128000 });
+              output.addAudioTrack(audioSource);
+            } catch (e) {
+              audioSource = null;
+            }
+          }
+          return output.start().then(function () {
+            if (audioSource) {
+              return audioSource.add(audioBuffer).then(function () { return null; });
+            }
+            return null;
+          }).then(function () {
+            var frames = Math.max(1, Math.round((total / 1000) * fps));
+            var i = 0;
+            function step() {
+              if (opts.signal && opts.signal.cancelled) throw new Error('렌더를 취소했습니다.');
+              if (i >= frames) return Promise.resolve();
+              var ms = Math.min(total, (i * 1000) / fps);
+              try {
+                drawFrame(ctx, {
+                  cuts: cuts, project: project, theme: theme, ms: ms,
+                  images: opts.images || {}, scaleX: scaleX, scaleY: scaleY
+                });
+              } catch (e) { /* 한 프레임 실패는 계속 */ }
+              var p = videoSource.add(i / fps, 1 / fps).then(function () {
+                i++;
+                if (opts.onProgress && (i % 6 === 0 || i === frames)) {
+                  opts.onProgress(Math.min(1, i / frames), ms, total);
+                }
+                return step();
+              });
+              return p;
+            }
+            return step();
+          }).then(function () {
+            return output.finalize();
+          }).then(function () {
+            var buf = output.target.buffer;
+            if (!buf) throw new Error('MP4 버퍼가 비었습니다.');
+            var blob = new Blob([buf], { type: 'video/mp4' });
+            var ms = Math.round(performance.now() - t0);
+            return {
+              blob: blob,
+              mime: 'video/mp4',
+              ext: 'mp4',
+              durationMs: total,
+              width: width,
+              height: height,
+              hasAudio: !!audioBuffer,
+              audioCodec: audioSource ? cap.audio : '',
+              encodeMs: ms
+            };
+          });
+        });
+      });
+    });
+  }
+
   function validateWebm(blob, expectedMs) {
     return new Promise(function (resolve) {
       var url = URL.createObjectURL(blob);
@@ -1573,6 +1898,11 @@
     loadImageSource: loadImageSource,
     dataUrlToImage: dataUrlToImage,
     pickMime: pickMime,
+    renderMixOffline: renderMixOffline,
+    encodeWav: encodeWav,
+    mp4Capability: mp4Capability,
+    renderMp4: renderMp4,
+    loaderVersion: MP4.version,
     patchWebmDuration: patchWebmDuration,
     validateWebm: validateWebm,
     extensionFor: extensionFor,

@@ -163,6 +163,11 @@
 
         <div class="one-click">
           <button type="button" class="btn btn-ghost btn-lg" id="btn-one-click" data-running="false">⚡ AI 원클릭 자동 완성</button>
+          <div class="free-one-click">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-free-cuts">무료 AI 대본 맛보기</button>
+            <span id="freeBadge"></span>
+          </div>
+          <div id="freeUpgrade" class="free-upgrade-slot"></div>
           <p class="status" id="one-click-status" aria-live="polite">대본 → 컷 비주얼 → 성우 음성 → 자막 싱크를 한 번에 맞춥니다. Pro 연결 시 AI 이미지·성우까지 영상에 들어갑니다.</p>
         </div>
       </aside>
@@ -361,6 +366,14 @@
             </div>
             <div class="field-row">
               <label class="field"><span>배경음</span><select id="x-music" class="input select"></select></label>
+              <label class="field"><span>파일 형식</span>
+                <select id="x-format" class="input select">
+                  <option value="mp4" selected>MP4 · H.264 (빠른 렌더)</option>
+                  <option value="webm">WebM · 실시간 녹화</option>
+                </select>
+              </label>
+            </div>
+            <div class="field-row">
               <label class="field"><span>장면 전환</span>
                 <select id="x-transition" class="input select">
                   <option value="fade">페이드</option>
@@ -387,7 +400,15 @@
               <div class="export-box-row"><span>내레이션</span><b id="export-voice">없음</b></div>
               <p class="export-warn" id="export-warn" hidden>60초를 넘습니다. 플랫폼 권장 길이를 확인하세요.</p>
             </div>
-            <button type="button" class="btn btn-primary btn-lg" id="btn-export" disabled>영상 .webm 만들기</button>
+            <button type="button" class="btn btn-primary btn-lg" id="btn-export" disabled>영상 .mp4 만들기</button>
+            <div class="wave-card" id="waveCard">
+              <div class="wave-head">
+                <b>오디오 파형</b>
+                <button type="button" class="link-btn" id="btn-wave">파형 만들기</button>
+              </div>
+              <div id="waveform" class="waveform" aria-label="배경음·내레이션 파형"></div>
+              <p class="hint" id="waveState">배경음과 내레이션을 브라우저에서 계산해 실제 파형을 그립니다. 소리는 어디에도 전송되지 않습니다.</p>
+            </div>
             <div class="progress" id="export-progress" hidden>
               <div class="progress-track"><span id="progress-bar"></span></div>
               <p class="progress-text" id="progress-text" aria-live="polite">녹화 준비 중…</p>
@@ -695,6 +716,7 @@
 <script src="core.js"></script>
 <script src="render.js"></script>
 <script src="pro.js"></script>
+<script src="engines/free-ai.js"></script>
 <script src="nle.js"></script>
 <script src="app.js"></script>
 </body>
