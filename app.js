@@ -1153,14 +1153,12 @@
     if (btn) { btn.disabled = true; btn.textContent = '무료 AI가 쓰는 중…'; }
     setFreeStatus('무료 체험으로 5컷 대본을 쓰는 중… (보통 3~10초)', 'busy');
     var tone = $('#ai-tone-select') ? $('#ai-tone-select').value : state.project.tone;
-    var prompt = C.buildScriptPrompt({
-      topic: topic, tone: tone, platform: state.project.platform,
-      extra: ($('#ai-extra') ? $('#ai-extra').value : '') + '\n[무료 체험] 출력은 설명 없이 JSON 배열만. [{"stage":"hook","headline":"...","sub":"..."}] 5개.'
-    });
+    // 워커는 짧은 입력에서만 안정적이다. 5컷 대사만 받아 스토리보드에 넣는다.
+    var prompt = '한국어 숏폼 5컷 대본 맛보기. 주제: ' + topic.slice(0, 40) + '. 말투: ' + tone +
+      '. 훅·문제·해결·증거·행동 순서로 각 컷 20자 이내, JSON 배열만: [{"stage":"hook","headline":"…"}]';
     FREE.generate({
       prompt: prompt,
-      system: '한국어 숏폼 대본 작가다. 5컷 구조를 지키고 JSON 배열만 출력한다.',
-      options: { temperature: 0.8, maxTokens: 900, json: true }
+      options: { temperature: 0.8, maxTokens: 700, json: true }
     }).then(function (res) {
       if (btn) { btn.disabled = false; btn.textContent = '무료 AI 대본 맛보기'; }
       if (!res.ok) {
