@@ -507,9 +507,10 @@ window.__ONETAP_I18N_DICT__ = {
 "방침이 바뀌면 이 페이지에 시행일과 함께 게시합니다. 중요한 변경은 앱 화면에서도 알립니다.": "Changes are posted on this page with an effective date, and important ones are also announced in the app.",
 "8. 문의": "8. Contact",
 "이 앱은 개인이 만든 무료 도구이며, 문의는 앱을 배포한 저장소의 이슈 페이지로 받습니다. 개인 이메일·전화번호는 공개하지 않습니다.": "This is a free tool made by an individual; questions go to the issue page of the repository that publishes it. No personal email or phone number is published.",
-"무료 모드의 성우 미리듣기는 기기의 음성 엔진(브라우저 speechSynthesis)을 쓰며 서버로 가지 않습니다. 이 소리는 미리듣기 전용이라 .webm 영상 파일에는 녹음되지 않습니다.": "The free voice preview uses the device's speech engine (browser speechSynthesis) and never reaches a server. That sound is preview-only and is not captured in the .webm video."
+"무료 모드의 성우 미리듣기는 기기의 음성 엔진(브라우저 speechSynthesis)을 쓰며 서버로 가지 않습니다. 이 소리는 미리듣기 전용이라 .webm 영상 파일에는 녹음되지 않습니다.": "The free voice preview uses the device's speech engine (browser speechSynthesis) and never reaches a server. That sound is preview-only and is not captured in the .webm video.",
+"훅이 24자를 넘습니다. 3초 안에 읽히지 않을 수 있습니다.": "The hook is over 24 characters. It may not read in 3 seconds."
 };
-window.__ONETAP_I18N_RULES__ = [["유튜브", "YouTube"], ["틱톡", "TikTok"], ["인스타그램", "Instagram"], ["인스타", "Instagram"], ["(\\d+)\\s*시간 전", "$1h ago"], ["(\\d+)\\s*일 전", "$1d ago"], ["(\\d+)\\s*분 전", "$1m ago"], ["(\\d+)\\s*초 전", "$1s ago"], ["(\\d+)\\s*초", "$1s"], ["(\\d+)\\s*개", "$1"], ["(\\d+)\\s*건", "$1 items"], ["(\\d+)\\s*회", "$1 calls"], ["(\\d+)\\s*명", "$1 people"], ["(\\d+)\\s*점", "$1 pts"], ["(\\d+)\\s*자", "$1 chars"], ["조회수", "views"], ["구독자", "subscribers"], ["좋아요", "likes"], ["댓글", "comments"], ["^훅 ([\\d.]+)초$", "Hook $1s"], ["^문제 ([\\d.]+)초$", "Problem $1s"], ["^해결 ([\\d.]+)초$", "Solution $1s"], ["^증거 ([\\d.]+)초$", "Proof $1s"], ["^행동 ([\\d.]+)초$", "Action $1s"], ["^FADE ([\\d.]+)초$", "FADE $1s"], ["^GRAIN ([\\d.]+)초$", "GRAIN $1s"], ["^(.+?) ([\\d.]+)초$", "$1 $2s"]];
+window.__ONETAP_I18N_RULES__ = [["^(.+?) · 5컷 숏폼$", "$1 · 5-cut shortform"], ["^5컷 · ([\\d.]+)초 · (\\d+)자$", "5 cuts · $1s · $2 characters"], ["^훅이 (\\d+)자를 넘습니다\\. 3초 안에 읽히지 않을 수 있습니다\\.$", "The hook is over $1 characters. It may not read in 3 seconds."], ["^훅 ([\\d.]+)초$", "Hook $1s"], ["^문제 ([\\d.]+)초$", "Problem $1s"], ["^해결 ([\\d.]+)초$", "Solution $1s"], ["^증거 ([\\d.]+)초$", "Proof $1s"], ["^행동 ([\\d.]+)초$", "Action $1s"], ["^FADE ([\\d.]+)초$", "FADE $1s"], ["^GRAIN ([\\d.]+)초$", "GRAIN $1s"], ["^손실 회피 ([\\d.]+)$", "Loss aversion $1"], ["^숫자 약속 ([\\d.]+)$", "Number promise $1"], ["^반전 ([\\d.]+)$", "Twist $1"], ["^대상 지목 ([\\d.]+)$", "Call out the audience $1"], ["^전후 비교 ([\\d.]+)$", "Before and after $1"], ["^질문 ([\\d.]+)$", "Question $1"], ["^권위 ([\\d.]+)$", "Authority $1"], ["^공감 ([\\d.]+)$", "Relatability $1"], ["유튜브", "YouTube"], ["틱톡", "TikTok"], ["인스타그램", "Instagram"], ["인스타", "Instagram"], ["(\\d+)\\s*시간 전", "$1h ago"], ["(\\d+)\\s*일 전", "$1d ago"], ["(\\d+)\\s*분 전", "$1m ago"], ["(\\d+)\\s*초 전", "$1s ago"], ["(\\d+)\\s*초", "$1s"], ["(\\d+)\\s*개", "$1"], ["(\\d+)\\s*건", "$1 items"], ["(\\d+)\\s*회", "$1 calls"], ["(\\d+)\\s*명", "$1 people"], ["(\\d+)\\s*점", "$1 pts"], ["(\\d+)\\s*자", "$1 chars"], ["조회수", "views"], ["구독자", "subscribers"], ["좋아요", "likes"], ["댓글", "comments"]];
 (function(){var st=document.createElement("style");st.id="onetapLangCss";st.textContent="html[lang=\"en\"] .waveform:empty::after{content:\"Press Build the waveform and the sound appears here\"}\n";document.head.appendChild(st);})();
 /* OneTap i18n engine — Korean / English (auto-detect + manual switch)
    Dictionary is generated per app; text is translated in place, so no re-render is needed. */
@@ -617,6 +618,7 @@ window.__ONETAP_I18N_RULES__ = [["유튜브", "YouTube"], ["틱톡", "TikTok"], 
   var lang = 'ko';
   var textRecs = [];
   var attrRecs = [];
+  var valRecs = [];
   var applying = false;
   var observer = null;
 
@@ -675,6 +677,21 @@ window.__ONETAP_I18N_RULES__ = [["유튜브", "YouTube"], ["틱톡", "TikTok"], 
     el.setAttribute(name, out);
   }
 
+  function applyValue(el) {
+    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
+    var type = (el.type || 'text').toLowerCase();
+    if (['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'color', 'file'].indexOf(type) >= 0) return;
+    var v = el.value;
+    if (!v || !KO.test(v)) return;
+    var key = norm(v);
+    if (!Object.prototype.hasOwnProperty.call(DICT, key)) return;
+    for (var i = 0; i < valRecs.length; i++) if (valRecs[i].el === el) return;
+    var out = DICT[key];
+    valRecs.push({ el: el, o: v });
+    el.value = out;
+    try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+  }
+
   function walk(root) {
     if (!root) return;
     if (root.nodeType === 3) { applyText(root); return; }
@@ -697,6 +714,7 @@ window.__ONETAP_I18N_RULES__ = [["유튜브", "YouTube"], ["틱톡", "TikTok"], 
       var el = list[k];
       if (el.closest && el.closest('[data-i18n-skip]')) continue;
       for (var j = 0; j < ATTRS.length; j++) applyAttr(el, ATTRS[j]);
+      applyValue(el);
       if (el.tagName === 'INPUT' && /^(submit|button|reset)$/i.test(el.type || '')) {
         var v = el.value;
         if (v && KO.test(v)) { var o = translate(v); if (o) el.value = o; }
@@ -732,6 +750,8 @@ window.__ONETAP_I18N_RULES__ = [["유튜브", "YouTube"], ["틱톡", "TikTok"], 
         if (a.el && a.el.isConnected) a.el.setAttribute(a.a, a.o);
       }
       attrRecs = [];
+      for (var k = 0; k < valRecs.length; k++) { if (valRecs[k].el && valRecs[k].el.isConnected) valRecs[k].el.value = valRecs[k].o; }
+      valRecs = [];
       if (titleRec.ko) document.title = titleRec.ko;
     } catch (e) {}
     applying = false;
@@ -768,8 +788,9 @@ window.__ONETAP_I18N_RULES__ = [["유튜브", "YouTube"], ["틱톡", "TikTok"], 
 
   function mountToggle() {
     if (document.getElementById('onetapLangToggle')) return;
-    var host = document.querySelector('.topbar-inner') || document.querySelector('.top-actions') ||
-      document.querySelector('.topbar') || document.querySelector('header') || document.body;
+    var host = document.querySelector('.topbar-inner') || document.querySelector('.bar-in') ||
+      document.querySelector('.top-actions') || document.querySelector('.topbar') ||
+      document.querySelector('header') || document.body;
     var btn = document.createElement('button');
     btn.id = 'onetapLangToggle';
     btn.type = 'button';
@@ -791,7 +812,7 @@ window.__ONETAP_I18N_RULES__ = [["유튜브", "YouTube"], ["틱톡", "TikTok"], 
       '.onetap-lang-toggle{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;height:32px;padding:0 9px;' +
       'border:1px solid rgba(120,120,130,.42);border-radius:999px;background:transparent;color:inherit;' +
       'font:600 11px/1 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:.02em;' +
-      'cursor:pointer;opacity:.92;margin-left:6px;white-space:nowrap;vertical-align:middle}' +
+      'cursor:pointer;opacity:.92;margin-left:auto;white-space:nowrap;vertical-align:middle}' +
       '.onetap-lang-toggle:hover{opacity:1;border-color:rgba(120,120,130,.7)}' +
       '.onetap-lang-toggle .otl-sep{opacity:.35;font-weight:400}' +
       '.onetap-lang-toggle .otl-ko,.onetap-lang-toggle .otl-en{opacity:.45}' +
